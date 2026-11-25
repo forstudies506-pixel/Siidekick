@@ -1,0 +1,11 @@
+{
+  "name": "@siidekick/campuskart-assistant",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DELIBERATELY VULNERABLE shopping assistant widget for the Siidekick demo. Never install or deploy.",
+  "type": "module",
+  "dependencies": {
+    "openai": "^4.77.0",
+    "react-chatbot-openai-helper": "^1.2.0"
+  }
+}

@@ -65,6 +65,22 @@ export const checkHi: Record<string, { title: string; why: string }> = {
     title: "UI animation का भार",
     why: "बहुत भारी animation सस्ते phones पर page धीमा कर देता है। हल्का animation रखें या reduced-motion का ध्यान रखें।",
   },
+  "hallucinated-package": {
+    title: "Package सच में मौजूद है",
+    why: "AI कभी-कभी ऐसे package का नाम लिख देता है जो registry पर है ही नहीं। Attacker उसी नाम से malware publish कर सकता है। Install से पहले नाम जाँचें।",
+  },
+  "client-exposed-secrets": {
+    title: "Browser code में server key नहीं",
+    why: "Frontend का code हर visitor पढ़ सकता है। Server की key वहाँ हो तो कोई भी उसे चुराकर आपके खर्चे पर चला सकता है। Key को backend में रखें।",
+  },
+  "baas-open-rules": {
+    title: "Firebase और Supabase data बंद है",
+    why: "Firebase/Supabase में browser सीधे database से बात करता है, rules ही अकेला ताला हैं। Rules खुले हों तो कोई भी data पढ़ या बदल सकता है।",
+  },
+  "jwt-misuse": {
+    title: "Login token सही से जाँचा जाता है",
+    why: "Token को verify किए बिना मानना, या code में लिखा secret, किसी को भी नकली login token बनाने देता है। verify() और env से secret इस्तेमाल करें।",
+  },
 };
 
 export const ui = {

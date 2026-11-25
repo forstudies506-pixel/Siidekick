@@ -2,8 +2,24 @@
   "name": "vulnerable-app",
   "files": [
     {
+      "path": "assistant/package.json",
+      "content": "{\n  \"name\": \"@siidekick/campuskart-assistant\",\n  \"version\": \"0.1.0\",\n  \"private\": true,\n  \"description\": \"DELIBERATELY VULNERABLE shopping assistant widget for the Siidekick demo. Never install or deploy.\",\n  \"type\": \"module\",\n  \"dependencies\": {\n    \"openai\": \"^4.77.0\",\n    \"react-chatbot-openai-helper\": \"^1.2.0\"\n  }\n}\n"
+    },
+    {
+      "path": "assistant/src/chat.js",
+      "content": "// Shopping assistant widget, as an AI assistant first wrote it. Demo flaw: never ship this.\nimport OpenAI from \"openai\";\n\nconst client = new OpenAI({\n  apiKey: import.meta.env.VITE_OPENAI_API_KEY,\n  dangerouslyAllowBrowser: true,\n});\n\nexport async function ask(question) {\n  const reply = await client.chat.completions.create({\n    model: \"gpt-4o-mini\",\n    messages: [{ role: \"user\", content: question }],\n  });\n  return reply.choices[0].message.content;\n}\n"
+    },
+    {
+      "path": "firestore.rules",
+      "content": "rules_version = '2';\n// Order tracking mirror for the CampusKart app. Never deployed: this is a demo flaw.\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /orders/{orderId} {\n      allow read, write: if true;\n    }\n  }\n}\n"
+    },
+    {
       "path": "FLAWS.md",
-      "content": "# FLAWS\n\nPlanted flaws in CampusKart, mapped to Siidekick check ids.\n\n| # | Flaw | File:line | Check id |\n|---|------|-----------|----------|\n| 1 | Hardcoded payment API key used in `/checkout` | `server.js:33` | `secrets-in-repo` |\n| 2 | String-built SQL in `GET /api/products?q=` | `server.js:51` | `sql-string-concat` |\n| 3 | No security headers (CSP/HSTS/X-Frame-Options) | `server.js:11` | `security-headers` |\n| 4 | Open CORS (`Access-Control-Allow-Origin: *`) | `server.js:12` | `open-cors` |\n| 5 | No rate limit on `POST /login` | `server.js:39` | `rate-limit` |\n| 6 | Public admin route `GET /admin/users` with no auth | `server.js:64` | `auth-on-endpoints` |\n| 7 | Outdated lodash with `_.merge` on request body in `POST /api/cart` | `server.js:3` | `dependency-audit` |\n| 8 | Heavy login page with `left`/`top` keyframe animation and 300+ line inline script | `public/login.html` | `ui-heavy-animation` |\n"
+      "content": "# FLAWS\n\nPlanted flaws in CampusKart, mapped to Siidekick check ids.\n\n| # | Flaw | File:line | Check id |\n|---|------|-----------|----------|\n| 1 | Hardcoded payment API key used in `/checkout` | `server.js:33` | `secrets-in-repo` |\n| 2 | String-built SQL in `GET /api/products?q=` | `server.js:51` | `sql-string-concat` |\n| 3 | No security headers (CSP/HSTS/X-Frame-Options) | `server.js:11` | `security-headers` |\n| 4 | Open CORS (`Access-Control-Allow-Origin: *`) | `server.js:12` | `open-cors` |\n| 5 | No rate limit on `POST /login` | `server.js:39` | `rate-limit` |\n| 6 | Public admin route `GET /admin/users` with no auth | `server.js:64` | `auth-on-endpoints` |\n| 7 | Outdated lodash with `_.merge` on request body in `POST /api/cart` | `server.js:3` | `dependency-audit` |\n| 8 | Heavy login page with `left`/`top` keyframe animation and 300+ line inline script | `public/login.html` | `ui-heavy-animation` |\n| 9 | Shopping assistant depends on `react-chatbot-openai-helper`, a package that does not exist on npm (an AI-invented name an attacker could register) | `assistant/package.json:9` | `hallucinated-package` |\n| 10 | OpenAI key read from `VITE_OPENAI_API_KEY` and the SDK told to run in the browser | `assistant/src/chat.js:5` | `client-exposed-secrets` |\n| 11 | Firestore rules left open: anyone can read and write orders | `firestore.rules:6` | `baas-open-rules` |\n| 12 | JWT secret falls back to a value in the code, and expired tokens are accepted | `lib/session-token.js:4` | `jwt-misuse` |\n\nFlaws 9–12 live in files `server.js` never loads, so the running demo and its tests are unchanged. `assistant/` is outside the npm workspace glob and is never installed.\n"
+    },
+    {
+      "path": "lib/session-token.js",
+      "content": "// Session tokens for the planned mobile app. Not loaded by server.js; demo flaw only.\nconst jwt = require(\"jsonwebtoken\");\n\nconst SECRET = process.env.JWT_SECRET || \"campuskart-dev\";\n\nfunction issue(user) {\n  return jwt.sign({ sub: user.id, role: user.role }, SECRET, { expiresIn: \"7d\" });\n}\n\nfunction check(token) {\n  return jwt.verify(token, SECRET, { ignoreExpiration: true });\n}\n\nmodule.exports = { issue, check };\n"
     },
     {
       "path": "package.json",

@@ -8,13 +8,14 @@ Siidekick: scans a web repo, explains risks, proposes template patches (additive
 ## Layout
 | Path | What | Status |
 |---|---|---|
-| `packages/engine/` | `@siidekick/engine`: checks, diff guard, scanner, CLI | 15 checks, tested (111 tests) |
+| `packages/engine/` | `@siidekick/engine`: checks, diff guard, scanner, CLI | 19 checks, tested (137 tests) |
 | `packages/engine/src/types.ts` | shared contract (Check, Finding, Patch, GuardResult, ScanReport). Change via board only | done |
 | `packages/engine/src/diffGuard.ts` | `renderDiff` (LCS), `lineDiff`, `guardPatch` (additive: 0 removals; minimal-edit: only `allowedRemovals`; caps +400/−5; rejects overwrite/missing/stale `before`) | tested |
 | `packages/engine/src/apply.ts` | `applyPatch` (throws `GuardRejected`), returns new in-memory snapshot | done |
-| `packages/engine/src/registry.ts` | `registry = [...securityChecks, ...deliveryChecks]`, `runScan` (weighted score: crit 5, high 3, med 2, low 1, info .5; crashed detector = failed) | done |
+| `packages/engine/src/registry.ts` | `registry = [...securityChecks, ...deliveryChecks, ...aiChecks]`, `runScan` (weighted score: crit 5, high 3, med 2, low 1, info .5; crashed detector = failed) | done |
 | `packages/engine/src/checks/security.ts` | barrel: secrets-in-repo, security-headers, rate-limit, open-cors, auth-on-endpoints, sql-string-concat (report-only), dependency-audit (OSV) | tested |
 | `packages/engine/src/checks/delivery.ts` | barrel: readme, ci-workflow, health-endpoint, error-handler, ui-heavy-animation, input-validation, firewall-rules, incident-playbook | tested |
+| `packages/engine/src/checks/ai.ts` | barrel (Claude): hallucinated-package (npm/PyPI existence, report-only), client-exposed-secrets (server keys in browser code), baas-open-rules (Firebase/RTDB/Supabase RLS; fixes Firebase to require sign-in), jwt-misuse (decode w/o verify, alg none, literal/fallback secret, expiry off; fixes expiry) | tested |
 | `packages/engine/src/checks/secrets.ts` | `secrets-in-repo`: reference pattern for every check; `secretValues()` for masking | tested |
 | `packages/engine/src/checks/dependency-audit.ts` | OSV querybatch (names+versions only, 8 s, chunks of 1000, no pagination); range floors when no lockfile; `depEntries` offset scan bumps inline or multi-line deps; bump target re-checked ≤3 rounds | tested |
 | `packages/engine/src/unifiedDiff.ts` | `unifiedFileDiff` (git-style), `patchArtifacts` → `.siidekick/<id>.patch` + `SIIDEKICK_LOG.md`, secrets masked | tested |
@@ -23,8 +24,8 @@ Siidekick: scans a web repo, explains risks, proposes template patches (additive
 | `packages/engine/src/loadRepo.ts` | read a dir into a snapshot (skips node_modules/.git/dist/.siidekick, >512 KB, binary) | done |
 | `packages/engine/src/cli.ts` | `siidekick scan <dir> [--json]`, `siidekick fix <dir> [--out <dir>] [--verify]` (`--verify` needs `--out`) | done |
 | `packages/engine/src/util.ts` | `redact`, `lineAt`, `CODE_EXT`, `DOC_EXT` (docs never pass a code check) | done |
-| `demo/vulnerable-app/` | CampusKart Express app with 8 planted flaws (`FLAWS.md`), node:test tests | done, 3 → 77 after fix (CLI and API) |
-| `apps/api/` | pure router + Lambda + local node:http (port 8787), storage `STORAGE=local\|dynamo` (Dynamo records gzipped, 413 past the 400 KB item limit); download includes the patch log; `/patches/:id/check` replays an edited patch through the guard; `/prove` runs the attack replay on demo records only (`demo: true`); scan fetches go through `cachedOsvFetch` (OSV answers reused 10 min); `build` also copies the demo JSON and builds `dist/runtime/node_modules` for the replay | tested (25 tests) |
+| `demo/vulnerable-app/` | CampusKart Express app with 12 planted flaws (`FLAWS.md`; 9–12 in files `server.js` never loads), node:test tests | done, 2 → 59 after fix (CLI) |
+| `apps/api/` | pure router + Lambda + local node:http (port 8787), storage `STORAGE=local\|dynamo` (Dynamo records gzipped, 413 past the 400 KB item limit); download includes the patch log; `/patches/:id/check` replays an edited patch through the guard; `/prove` runs the attack replay on demo records only (`demo: true`); scan fetches go through `cachedOsvFetch` (OSV answers reused 10 min); `build` also copies the demo JSON and builds `dist/runtime/node_modules` for the replay | tested (26 tests) |
 | `apps/api/src/github.ts` | public GitHub URL → codeload tarball, size/file caps, no redirects, in-memory tar parse, no code run | tested |
 | `apps/web/` | Vite + React: landing `/`, dashboard `/app` (`?demo=1` auto-scans) on the real API; `VITE_MOCK=1` forces the mock adapter | done, Claude only |
 | `apps/web/src/zip.ts` | store-only ZIP writer for the approved-patch download | done |

@@ -18,6 +18,10 @@ const checks = [
   ["C", "Security", "Open CORS", "medium"],
   ["C", "Security", "Firewall rules", "medium"],
   ["E", "States", "Heavy UI animation", "low"],
+  ["F", "AI-era", "Dependencies exist on the public registry", "critical"],
+  ["F", "AI-era", "No server secrets in browser code", "critical"],
+  ["F", "AI-era", "Firebase and Supabase data is locked", "critical"],
+  ["F", "AI-era", "Login tokens are verified properly", "critical"],
 ] as const;
 
 export function Landing() {

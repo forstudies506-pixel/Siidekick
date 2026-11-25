@@ -1,9 +1,10 @@
 import type { Check, CheckContext, ScanReport, Severity } from "./types.js";
+import { aiChecks } from "./checks/ai.js";
 import { deliveryChecks } from "./checks/delivery.js";
 import { securityChecks } from "./checks/security.js";
 
 /** Every check the engine runs. Do not edit: add checks to the owning barrel in ./checks. */
-export const registry: Check[] = [...securityChecks, ...deliveryChecks];
+export const registry: Check[] = [...securityChecks, ...deliveryChecks, ...aiChecks];
 
 const WEIGHT: Record<Severity, number> = { critical: 5, high: 3, medium: 2, low: 1, info: 0.5 };
 

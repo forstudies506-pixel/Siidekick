@@ -98,27 +98,31 @@ function matchPath(pattern: string, pathname: string): Record<string, string> | 
   return params;
 }
 
-const OSV_HOST = "api.osv.dev";
-// Every approve rescans the whole repo, and OSV's answer for the same query does not change within minutes.
-const OSV_TTL_MS = 10 * 60_000;
-const OSV_MAX_ENTRIES = 500;
+// Every approve rescans the whole repo. OSV advisories and registry existence do not change within minutes.
+const CACHED_HOSTS = new Set(["api.osv.dev", "registry.npmjs.org", "pypi.org"]);
+// A registry 404 is an answer ("not published"), so it is cached too. OSV 404s are errors and are not.
+const CACHE_404_HOSTS = new Set(["registry.npmjs.org", "pypi.org"]);
+const CACHE_TTL_MS = 10 * 60_000;
+const CACHE_MAX_ENTRIES = 2000;
 
-/** Wraps fetch so identical OSV.dev requests reuse a recent successful answer. Other hosts pass straight through. */
-export function cachedOsvFetch(inner: typeof fetch, now: () => number = Date.now): typeof fetch {
+/** Wraps fetch so identical OSV.dev and package-registry requests reuse a recent answer. Other hosts pass straight through. */
+export function cachedScanFetch(inner: typeof fetch, now: () => number = Date.now): typeof fetch {
   const cache = new Map<string, { at: number; status: number; type: string; body: string }>();
-  const replay = (e: { status: number; type: string; body: string }) => new Response(e.body, { status: e.status, headers: { "content-type": e.type } });
+  const replay = (e: { status: number; type: string; body: string }) =>
+    new Response(e.body || null, { status: e.status, headers: { "content-type": e.type } });
   return async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     const reqBody = init?.body ?? "";
-    if (new URL(url).host !== OSV_HOST || typeof reqBody !== "string") return inner(input, init);
+    const host = new URL(url).host;
+    if (!CACHED_HOSTS.has(host) || typeof reqBody !== "string") return inner(input, init);
     const key = createHash("sha256").update(`${init?.method ?? "GET"} ${url}\n${reqBody}`).digest("hex");
     const hit = cache.get(key);
-    if (hit && now() - hit.at < OSV_TTL_MS) return replay(hit);
+    if (hit && now() - hit.at < CACHE_TTL_MS) return replay(hit);
     const res = await inner(input, init);
-    if (!res.ok) return res;
+    if (!res.ok && !(res.status === 404 && CACHE_404_HOSTS.has(host))) return res;
     const entry = { at: now(), status: res.status, type: res.headers.get("content-type") ?? "application/json", body: await res.text() };
     cache.delete(key);
-    if (cache.size >= OSV_MAX_ENTRIES) cache.delete(cache.keys().next().value as string);
+    if (cache.size >= CACHE_MAX_ENTRIES) cache.delete(cache.keys().next().value as string);
     cache.set(key, entry);
     return replay(entry);
   };
@@ -142,7 +146,7 @@ function defaultReplayRuntime(): string | null {
 
 export function makeRouter(deps: { store: Store; fetch?: typeof fetch; replayRuntime?: string }) {
   const store = deps.store;
-  const scanFetch = cachedOsvFetch(deps.fetch ?? fetch);
+  const scanFetch = cachedScanFetch(deps.fetch ?? fetch);
 
   async function healthHandler(): Promise<{ status: number; body: unknown }> {
     return { status: 200, body: { ok: true, checks: registry.length } };

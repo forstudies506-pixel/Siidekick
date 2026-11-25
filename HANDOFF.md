@@ -14,6 +14,8 @@ _Updated 2026-11-25._ Read `BRAIN.md`, `AGENTS.md`, then this.
 - Phase 3: **Fast approve.** `cachedOsvFetch` in `apps/api/src/router.ts` reuses an identical OSV.dev answer for 10 min (max 500 entries, OK responses only, other hosts untouched), so a rescan after approve no longer re-queries OSV. Measured locally: approve went from ~4.8 s to ~4 ms. The dashboard disables the other approve buttons while one is pending. Cache is per Lambda instance, so a cold instance still pays one OSV round trip.
 - Phase 1 (222cf59): dashboard on the real API (demo, GitHub URL, folder), हिन्दी toggle, tamper check (`/patches/:id/check`), zip download. Checked in a browser: zip opens, holds patched files + `.siidekick/*.patch` + log. Hardening: line diff trims shared ends, `/check` caps lines², Dynamo records gzipped (413 when too big), HttpApi throttled 5 rps / burst 20.
 
+- Phase 4: **AI-era checks** (group F, `checks/ai.ts`): `hallucinated-package` (deps that do not exist on npm/PyPI, slopsquat risk, report-only), `client-exposed-secrets` (server keys in browser bundles), `baas-open-rules` (open Firebase/RTDB rules, Supabase tables without RLS; fixes Firebase to require sign-in), `jwt-misuse` (decode without verify, alg none, literal or fallback secret, expiry off; fixes expiry). Demo flaws 9–12 added. Verified: 137 engine + 26 API tests; demo CLI 2 → 59, 14 patches, all guards OK.
+
 ## Not done
 - AWS: template prepared (`sam validate --lint` passes), not yet deployed.
 - Hindi copy not checked by a native speaker.
