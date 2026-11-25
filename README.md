@@ -27,7 +27,8 @@ Add `--verify` (with `--out`) to run your own `npm test` after each patch; a pat
 ## Status
 - Implemented and tested: 15 checks (secrets, security headers, rate limit, open CORS, auth on admin routes, string-built SQL, dependency audit, input validation, firewall rules, incident playbook, README, CI, health endpoint, error handler, heavy UI animation), diff guard, test-and-rollback, patch log, CLI, HTTP API. On the demo app the score goes from 3 to 77 via both the CLI and the API (12 patches, all guards OK, demo tests still pass). 3 checks are left for the owner: rewrite the SQL with `?` placeholders (report-only, the rewrite is shown), wire `validate()` into the route, and the login animation (report-only).
 - Dependency audit: sends only package names and versions to [OSV](https://osv.dev) (8 s timeout). Without a lockfile it audits the lowest version each `package.json` range allows. The bump target is re-checked against OSV up to 3 times so it does not land in a newer advisory. A bump is proven only after you run `npm install` and your tests.
-- Planned: web dashboard, AWS deploy (template and `scripts/deploy.sh` are ready, not yet run). See `HANDOFF.md`.
+- Implemented and tested locally: web dashboard on the real API (demo shop, public GitHub URL or folder upload → findings with a हिन्दी toggle → diff and guard verdict → tamper check → approve → score → zip download). `npm run dev` in `apps/api` and `apps/web`, then open `/app?demo=1`.
+- Not yet run: the AWS deploy (template and `scripts/deploy.sh` are ready). See `HANDOFF.md`.
 
 ## Docs
 [ROADMAP](docs/ROADMAP.md) (full spec) · [IDEA](docs/IDEA.md) (pitch) · [PLAN](docs/PLAN.md) (3-day finish plan) · [BRAIN](BRAIN.md) (repo map) · [AGENTS](AGENTS.md) (team rules) · [HANDOFF](HANDOFF.md) (current state)

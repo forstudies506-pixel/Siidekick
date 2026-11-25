@@ -9,12 +9,12 @@ The pitch is in [IDEA.md](IDEA.md). The full spec is in [ROADMAP.md](ROADMAP.md)
 - engine: 15 checks, diff guard, test-and-rollback, patch log
 - CLI and HTTP API
 - the demo goes 3 → 77 with 12 patches
-- 108 engine tests and 8 API tests
+- 109 engine tests and 20 API tests
+- dashboard on the real API, GitHub URL scan, tamper check, हिन्दी toggle, zip download
+- research docs in `docs/research/`
 
 **Missing:**
-- the real dashboard
 - an AWS deploy
-- research docs
 - a real-site pilot
 - the video
 

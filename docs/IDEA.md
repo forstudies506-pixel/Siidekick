@@ -43,7 +43,7 @@ Comparison: `docs/research/COMPETITORS.md`.
 3. Each fix shows its diff with the added lines highlighted, and the guard's verdict.
 4. **Tamper:** make a fix delete one line of owner code. The real guard on the server blocks it and shows the line.
 5. Approve the fixes. The score animates to **77**. The three remaining items are honest owner tasks, each with its rewrite shown.
-6. Download the patched repo, including `.siidekick/*.patch` files and a log with revert commands.
+6. Download the patched repo as a zip, including `.siidekick/*.patch` files and a log with revert commands.
 7. *(stretch)* The Siidekick Guard GitHub Action keeps the repo safe on every pull request after that.
 
 ## Judging map (Campus to Cloud weights, ROADMAP §12)

@@ -23,8 +23,11 @@ Siidekick: scans a web repo, explains risks, proposes template patches (additive
 | `packages/engine/src/cli.ts` | `siidekick scan <dir> [--json]`, `siidekick fix <dir> [--out <dir>] [--verify]` (`--verify` needs `--out`) | done |
 | `packages/engine/src/util.ts` | `redact`, `lineAt`, `CODE_EXT`, `DOC_EXT` (docs never pass a code check) | done |
 | `demo/vulnerable-app/` | CampusKart Express app with 8 planted flaws (`FLAWS.md`), node:test tests | done, 3 → 77 after fix (CLI and API) |
-| `apps/api/` | pure router + Lambda + local node:http (port 8787), storage `STORAGE=local\|dynamo`; download includes the patch log | tested (8 tests) |
-| `apps/web/` | Vite + React: landing `/`, dashboard `/app`, mock adapter | scaffold, UI parked (Claude only) |
+| `apps/api/` | pure router + Lambda + local node:http (port 8787), storage `STORAGE=local\|dynamo` (Dynamo records gzipped, 413 past the 400 KB item limit); download includes the patch log; `/patches/:id/check` replays an edited patch through the guard | tested (20 tests) |
+| `apps/api/src/github.ts` | public GitHub URL → codeload tarball, size/file caps, no redirects, in-memory tar parse, no code run | tested |
+| `apps/web/` | Vite + React: landing `/`, dashboard `/app` (`?demo=1` auto-scans) on the real API; `VITE_MOCK=1` forces the mock adapter | done, Claude only |
+| `apps/web/src/zip.ts` | store-only ZIP writer for the approved-patch download | done |
+| `apps/web/src/i18n/hi.ts` | Hindi titles and reasons per check; needs a native speaker check (#2) | done, unchecked |
 | `infra/` | AWS SAM template (HttpApi, Lambda arm64, DynamoDB, S3 + CloudFront OAC) | prepared, not deployed |
 | `docs/workstreams/` | worker briefs + `COMMON.md` rules | done |
 | `docs/pitch/` | `PITCH.md`, `DEMO_SCRIPT.md`, `SUBMISSION.md` | drafts |
