@@ -135,3 +135,15 @@ describe("POST /api/sites", () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe("GET /api/checks", () => {
+  it("lists every repo and site check the engine runs", async () => {
+    const router = makeRouter({ store: createStore() });
+    const res = await router.handle({ method: "GET", path: "/api/checks" });
+    const body = res.body as { repo: Array<{ id: string }>; site: Array<{ id: string; severity: string }> };
+    expect(res.status).toBe(200);
+    expect(body.repo.length).toBeGreaterThan(10);
+    expect(body.site.map((c) => c.id)).toContain("site-https");
+    expect(body.site.every((c) => typeof c.severity === "string")).toBe(true);
+  });
+});

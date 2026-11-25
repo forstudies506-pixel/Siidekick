@@ -14,6 +14,7 @@ import {
   type Check,
   type FileEdit,
   runSiteScan,
+  siteChecks,
   type SiteSnapshot,
 } from "@siidekick/engine";
 import * as z from "zod";
@@ -159,6 +160,17 @@ export function makeRouter(deps: {
 
   async function healthHandler(): Promise<{ status: number; body: unknown }> {
     return { status: 200, body: { ok: true, checks: registry.length } };
+  }
+
+  /** The live check list, so the site never shows a hand-copied one that drifts from the engine. */
+  async function checksHandler(): Promise<{ status: number; body: unknown }> {
+    const row = (c: { id: string; title: string; group: string; severity: string }) => ({
+      id: c.id,
+      title: c.title,
+      group: c.group,
+      severity: c.severity,
+    });
+    return { status: 200, body: { repo: registry.map(row), site: siteChecks.map(row) } };
   }
 
   async function saveScan(repo: RepoSnapshot, demo = false, omitted = 0): Promise<{ status: number; body: unknown }> {
@@ -420,6 +432,7 @@ export function makeRouter(deps: {
 
   const routes: RouteDef[] = [
     { method: "GET", path: "api/health", handler: healthHandler },
+    { method: "GET", path: "api/checks", handler: checksHandler },
     { method: "POST", path: "api/scans", handler: createScanHandler },
     { method: "POST", path: "api/scans/demo", handler: demoScanHandler },
     { method: "POST", path: "api/scans/github", handler: githubScanHandler },
