@@ -30,19 +30,19 @@
 
 **Say:** “The owner can read exactly what changes. The diff guard rejects patches that delete owner code or replace a file outside the approved edit.”
 
-## 2:00-2:25 - Approve two
+## 2:00-2:15 - Approve and rescan
 
-**Click:** Approve the first patch, then approve the second.
+**Click:** Approve the patches one by one (cut the video while each rescan runs) and point to the score.
 
-**Say:** “Each patch needs separate approval. Siidekick applies only the approved changes.”
+**Say:** “Each patch needs separate approval. Siidekick applies only the approved changes, and the rescan shows the score change.”
 
-## 2:25-2:40 - Rescan
+## 2:15-2:45 - Proof of fix
 
-**Click:** Run the rescan and point to the score.
+**Click:** Replay the attacks. Point to the attack path marked “Fix this one first”, then to one receipt.
 
-**Say:** “The rescan shows the score change. It gives the owner a before-and-after check; it reduces risk but does not eliminate it.”
+**Say:** “A score is a claim. So Siidekick boots the shop twice, as scanned and as patched, and fires the same attacks at both: five live requests and a check for a hardcoded key. Five are blocked, and next to each is a check that a real customer still gets through. One still works: the SQL injection, because no safe automatic patch exists. That keeps the path to logging in as any customer open, so Siidekick says fix this one first. Risk reduced, not removed.”
 
-## 2:40-2:55 - Download
+## 2:45-2:55 - Download
 
 **Click:** Download the patched files.
 

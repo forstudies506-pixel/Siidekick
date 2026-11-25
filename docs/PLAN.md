@@ -9,8 +9,9 @@ The pitch is in [IDEA.md](IDEA.md). The full spec is in [ROADMAP.md](ROADMAP.md)
 - engine: 15 checks, diff guard, test-and-rollback, patch log
 - CLI and HTTP API
 - the demo goes 3 → 77 with 12 patches
-- 109 engine tests and 20 API tests
+- 111 engine tests and 23 API tests
 - dashboard on the real API, GitHub URL scan, tamper check, हिन्दी toggle, zip download
+- Proof of fix (demo only): attack replay before and after the approved patches, attack paths with "fix this one first"
 - research docs in `docs/research/`
 
 **Missing:**
@@ -59,7 +60,7 @@ The pitch is in [IDEA.md](IDEA.md). The full spec is in [ROADMAP.md](ROADMAP.md)
 
 ## Rules for the finish
 - Say "risk reduced", never "secure" or "unhackable". No invented statistics, users, or traction.
-- Never run uploaded code on the server. Test-and-rollback stays in the local CLI.
+- Never run uploaded code on the server. Test-and-rollback stays in the local CLI. The attack replay runs only the bundled demo shop.
 - One owner per file set (see `AGENTS.md`). Each agent diff goes through a Sonnet review, then the lead runs the tests, then it is committed.
 - Commit and push per phase, after `git fetch` and reading teammates' commits.
 

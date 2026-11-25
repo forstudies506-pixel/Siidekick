@@ -208,4 +208,47 @@ describe("router", () => {
       expect((await router.handle({ method: "POST", path: missing, body: { edits: target.patch.edits } })).status).toBe(404);
     });
   });
+  describe("prove (attack replay)", () => {
+    type Receipt = { id: string; verdict: string };
+    type Path = { id: string; openAfter: boolean };
+
+    it("refuses records that are not the demo shop", async () => {
+      const created = await router.handle({ method: "POST", path: "/api/scans", body: tinyRepo });
+      const { id } = created.body as { id: string };
+      const res = await router.handle({ method: "POST", path: `/api/scans/${id}/prove` });
+      expect(res.status).toBe(409);
+    });
+
+    it("rejects a bad id and a missing record", async () => {
+      expect((await router.handle({ method: "POST", path: "/api/scans/not-a-uuid/prove" })).status).toBe(400);
+      expect((await router.handle({ method: "POST", path: `/api/scans/${crypto.randomUUID()}/prove` })).status).toBe(404);
+    });
+
+    it("replays attacks on the demo: unapproved stays open, approved fixes block", async () => {
+      // No network in tests: the dependency audit fails soft without OSV.
+      router = makeRouter({ store, fetch: (async () => { throw new Error("offline"); }) as typeof fetch });
+      const created = await router.handle({ method: "POST", path: "/api/scans/demo" });
+      const { id } = created.body as { id: string };
+
+      const none = await router.handle({ method: "POST", path: `/api/scans/${id}/prove` });
+      expect(none.status).toBe(200);
+      const noneBody = none.body as { available: boolean; attacks: Receipt[] };
+      expect(noneBody.available).toBe(true);
+      expect(noneBody.attacks.every((a) => a.verdict === "still-open")).toBe(true);
+
+      const patchRes = await router.handle({ method: "POST", path: `/api/scans/${id}/patches` });
+      const entries = (patchRes.body as { patches: Array<{ patch: { id: string }; guard: { ok: boolean } }> }).patches;
+      for (const e of entries.filter((p) => p.guard.ok)) {
+        const ap = await router.handle({ method: "POST", path: `/api/scans/${id}/patches/${e.patch.id}/approve` });
+        expect(ap.status).toBe(200);
+      }
+      const res = await router.handle({ method: "POST", path: `/api/scans/${id}/prove` });
+      const body = res.body as { available: boolean; attacks: Receipt[]; paths: Path[] };
+      const verdict = Object.fromEntries(body.attacks.map((a) => [a.id, a.verdict]));
+      expect(verdict["admin-open"]).toBe("blocked");
+      expect(verdict["brute-force"]).toBe("blocked");
+      expect(verdict["sqli-dump"]).toBe("still-open");
+      expect(JSON.stringify(body)).not.toMatch(/password123|welcome2024|fest2025|pk_demo_/);
+    }, 30_000);
+  });
 });

@@ -156,6 +156,54 @@ export async function approve(id: string, patchId: string): Promise<string[]> {
   return r.approved;
 }
 
+// Mirrors the report in packages/engine/src/replay.ts. Declared here because that module imports node-only APIs.
+export type ReplayVerdict = "blocked" | "still-open" | "not-reproduced" | "inconclusive";
+export interface Probe {
+  exploited: boolean;
+  detail: string;
+}
+export interface AttackReceipt {
+  id: string;
+  checkId: string;
+  title: string;
+  request: string;
+  kind: "live" | "static";
+  before: Probe;
+  after: Probe;
+  control?: { label: string; ok: boolean };
+  verdict: ReplayVerdict;
+}
+export interface AttackPath {
+  id: string;
+  title: string;
+  impact: "critical" | "high";
+  steps: { attackId: string; text: string; before: boolean; after: boolean }[];
+  openBefore: boolean;
+  openAfter: boolean;
+  cutBy: string[];
+}
+export interface ReplayReport {
+  available: boolean;
+  reason?: string;
+  attacks: AttackReceipt[];
+  paths: AttackPath[];
+  tests?: { ran: boolean; passed: number; failed: number };
+  ms: number;
+}
+
+const validReplay = (v: unknown) => isObj(v) && typeof v.available === "boolean" && Array.isArray(v.attacks) && Array.isArray(v.paths);
+
+/** Attacks the demo shop as scanned and as patched with the approved fixes. The server refuses any other repo. */
+export async function proveFix(id: string): Promise<ReplayReport> {
+  if (mockSession) throw new Error("Attack replay needs the scan server. Demo data cannot be attacked.");
+  try {
+    return await request<ReplayReport>(`/api/scans/${encodeURIComponent(id)}/prove`, { method: "POST" }, validReplay);
+  } catch (e) {
+    if (e instanceof ApiUnavailable) throw new Error("The scan server is offline, so the attacks cannot be replayed.");
+    throw e;
+  }
+}
+
 export async function download(id: string): Promise<DownloadResponse> {
   if (mockSession) return mockDownload([...mockApproved]);
   return request<DownloadResponse>(`/api/scans/${encodeURIComponent(id)}/download`, { method: "GET" }, validDownload);

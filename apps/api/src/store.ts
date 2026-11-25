@@ -23,6 +23,8 @@ export interface ScanRecord {
   // snapshotAfter holds the repo state after patches were applied, so /download
   // can serve file contents. Kept internal (not returned by GET /api/scans/:id).
   snapshotAfter?: RepoSnapshot;
+  // Set only by POST /api/scans/demo. Attack replay runs on records with this flag and nothing else.
+  demo?: true;
 }
 
 export interface Store {

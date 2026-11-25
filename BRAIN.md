@@ -8,7 +8,7 @@ Siidekick: scans a web repo, explains risks, proposes template patches (additive
 ## Layout
 | Path | What | Status |
 |---|---|---|
-| `packages/engine/` | `@siidekick/engine`: checks, diff guard, scanner, CLI | 15 checks, tested (108 tests) |
+| `packages/engine/` | `@siidekick/engine`: checks, diff guard, scanner, CLI | 15 checks, tested (111 tests) |
 | `packages/engine/src/types.ts` | shared contract (Check, Finding, Patch, GuardResult, ScanReport). Change via board only | done |
 | `packages/engine/src/diffGuard.ts` | `renderDiff` (LCS), `lineDiff`, `guardPatch` (additive: 0 removals; minimal-edit: only `allowedRemovals`; caps +400/−5; rejects overwrite/missing/stale `before`) | tested |
 | `packages/engine/src/apply.ts` | `applyPatch` (throws `GuardRejected`), returns new in-memory snapshot | done |
@@ -19,11 +19,12 @@ Siidekick: scans a web repo, explains risks, proposes template patches (additive
 | `packages/engine/src/checks/dependency-audit.ts` | OSV querybatch (names+versions only, 8 s, chunks of 1000, no pagination); range floors when no lockfile; `depEntries` offset scan bumps inline or multi-line deps; bump target re-checked ≤3 rounds | tested |
 | `packages/engine/src/unifiedDiff.ts` | `unifiedFileDiff` (git-style), `patchArtifacts` → `.siidekick/<id>.patch` + `SIIDEKICK_LOG.md`, secrets masked | tested |
 | `packages/engine/src/verify.ts` | `verifyPatches`: test-and-rollback with `npm test`, optional `Regenerate` hook. Local CLI only | tested |
+| `packages/engine/src/replay.ts` | `replayDemo`: writes before/after copies of the demo to a temp dir, boots each with `node` on a free port (minimal env, `runtimeDir` supplies express/lodash), fires 5 live attacks + 1 source check with control checks, runs the after copy's tests with `node --test`; `attackPaths` chains receipts into paths. Demo shop only | tested |
 | `packages/engine/src/loadRepo.ts` | read a dir into a snapshot (skips node_modules/.git/dist/.siidekick, >512 KB, binary) | done |
 | `packages/engine/src/cli.ts` | `siidekick scan <dir> [--json]`, `siidekick fix <dir> [--out <dir>] [--verify]` (`--verify` needs `--out`) | done |
 | `packages/engine/src/util.ts` | `redact`, `lineAt`, `CODE_EXT`, `DOC_EXT` (docs never pass a code check) | done |
 | `demo/vulnerable-app/` | CampusKart Express app with 8 planted flaws (`FLAWS.md`), node:test tests | done, 3 → 77 after fix (CLI and API) |
-| `apps/api/` | pure router + Lambda + local node:http (port 8787), storage `STORAGE=local\|dynamo` (Dynamo records gzipped, 413 past the 400 KB item limit); download includes the patch log; `/patches/:id/check` replays an edited patch through the guard | tested (20 tests) |
+| `apps/api/` | pure router + Lambda + local node:http (port 8787), storage `STORAGE=local\|dynamo` (Dynamo records gzipped, 413 past the 400 KB item limit); download includes the patch log; `/patches/:id/check` replays an edited patch through the guard; `/prove` runs the attack replay on demo records only (`demo: true`); `build` also copies the demo JSON and builds `dist/runtime/node_modules` for the replay | tested (23 tests) |
 | `apps/api/src/github.ts` | public GitHub URL → codeload tarball, size/file caps, no redirects, in-memory tar parse, no code run | tested |
 | `apps/web/` | Vite + React: landing `/`, dashboard `/app` (`?demo=1` auto-scans) on the real API; `VITE_MOCK=1` forces the mock adapter | done, Claude only |
 | `apps/web/src/zip.ts` | store-only ZIP writer for the approved-patch download | done |
@@ -35,7 +36,7 @@ Siidekick: scans a web repo, explains risks, proposes template patches (additive
 | `scripts/bundle-demo.ts` | bundles the demo app into `apps/api/src/demoRepo.generated.json` | done |
 
 ## Pipeline
-`loadRepo` → `runScan(ctx, registry)` → per failing check `fix(ctx)` → `guardPatch` → `applyPatch` (sequential; fixers recompute from `ctx.repo`) → rescan → `patchArtifacts` (patch files + log). CLI `--verify`: `verifyPatches` writes the copy, runs `npm test` after each patch, rolls back failures. Status: `rescan-clean`/`rescan-partial`, or `verified` where tests ran.
+`loadRepo` → `runScan(ctx, registry)` → per failing check `fix(ctx)` → `guardPatch` → `applyPatch` (sequential; fixers recompute from `ctx.repo`) → rescan → `patchArtifacts` (patch files + log). CLI `--verify`: `verifyPatches` writes the copy, runs `npm test` after each patch, rolls back failures. Status: `rescan-clean`/`rescan-partial`, or `verified` where tests ran. Demo only: `/prove` → `approvedSnapshot` → `replayDemo` (attack before and after, control checks, tests) → `attackPaths`.
 
 ## Commands (repo root)
 ```bash
@@ -49,7 +50,7 @@ npm run dev -w @siidekick/web # web on :5173 (VITE_MOCK=1 for mock data)
 ```
 
 ## API contract
-`GET /api/health` · `POST /api/scans {name, files[]}` (≤500 files, ≤2 MB) · `POST /api/scans/demo` · `GET /api/scans/:id` · `POST /api/scans/:id/patches` · `POST /api/scans/:id/patches/:patchId/approve` · `GET /api/scans/:id/download`. Details: `docs/workstreams/WS-api-infra.md`.
+`GET /api/health` · `POST /api/scans {name, files[]}` (≤500 files, ≤2 MB) · `POST /api/scans/demo` · `GET /api/scans/:id` · `POST /api/scans/:id/patches` · `POST /api/scans/:id/patches/:patchId/approve` · `POST /api/scans/:id/patches/:patchId/check` · `POST /api/scans/:id/prove` (demo only) · `GET /api/scans/:id/download`. Details: `docs/workstreams/WS-api-infra.md`.
 
 ## Design (web)
 Dark graphite + amber, soft neo-brutalism, editorial. OKLCH tokens. Schibsted Grotesk + JetBrains Mono. Amber = add/action, red = blocked/deleted, green = passed only.

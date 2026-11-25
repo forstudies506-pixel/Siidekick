@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx watch src/local.ts",
     "test": "vitest run",
-    "build": "esbuild src/lambda.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/lambda.mjs --external:@aws-sdk/*"
+    "build": "esbuild src/lambda.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/lambda.mjs --external:@aws-sdk/* && cp src/demoRepo.generated.json dist/ && npm run build:runtime",
+    "build:runtime": "echo \"module.exports=require('express')\" | esbuild --bundle --platform=node --target=node20 --format=cjs --minify --log-level=warning --outfile=dist/runtime/node_modules/express/index.js && mkdir -p dist/runtime/node_modules/lodash && cp \"$(node -p \"require.resolve('lodash/lodash.js')\")\" dist/runtime/node_modules/lodash/index.js"
   },
   "dependencies": {
     "@siidekick/engine": "0.1.0",

@@ -8,8 +8,13 @@ import {
   generatePatches,
   githubScan,
   isMockSession,
+  proveFix,
   uploadScan,
+  type AttackPath,
+  type AttackReceipt,
   type CheckResponse,
+  type ReplayReport,
+  type ReplayVerdict,
   type PatchEntry,
   type PatchResponse,
   type ScanResponse,
@@ -317,6 +322,190 @@ function PatchCard({
   );
 }
 
+const verdictText: Record<ReplayVerdict, string> = {
+  blocked: "blocked",
+  "still-open": "still works",
+  "not-reproduced": "did not reproduce",
+  inconclusive: "inconclusive",
+};
+
+function Receipt({ receipt }: { receipt: AttackReceipt }) {
+  const { before, after, control, verdict } = receipt;
+  return (
+    <li className={`receipt ${verdict}`}>
+      <div className="receipt-head">
+        <h4>{receipt.title}</h4>
+        <span className={`verdict-chip ${verdict}`}>{verdictText[verdict]}</span>
+      </div>
+      <code className="receipt-request">{receipt.request}</code>
+      <dl className="receipt-probes">
+        <div className={before.exploited ? "hit" : "miss"}>
+          <dt>Before</dt>
+          <dd>
+            <strong>{before.exploited ? "Worked." : "Did not work."}</strong> {before.detail}
+          </dd>
+        </div>
+        <div className={after.exploited ? "hit" : "miss"}>
+          <dt>After</dt>
+          <dd>
+            <strong>{after.exploited ? "Still works." : "Blocked."}</strong> {after.detail}
+          </dd>
+        </div>
+      </dl>
+      {control && (
+        <p className={`receipt-control ${control.ok ? "ok" : "bad"}`}>
+          <span aria-hidden="true">{control.ok ? "✓" : "✗"}</span>
+          <span className="visually-hidden">{control.ok ? "Passed:" : "Failed:"}</span> {control.label}
+        </p>
+      )}
+    </li>
+  );
+}
+
+function PathCard({ path, first, titleOf }: { path: AttackPath; first: boolean; titleOf: (checkId: string) => string }) {
+  const open = path.openAfter;
+  const cuts = path.cutBy.map(titleOf);
+  return (
+    <li className={`attack-path ${open ? "open" : "closed"} ${path.impact}`}>
+      <div className="path-head">
+        <span className="path-impact">{path.impact}</span>
+        <h4>{path.title}</h4>
+        <span className={`verdict-chip ${open ? "still-open" : "blocked"}`}>{open ? "still open" : "closed"}</span>
+      </div>
+      <ol className="path-steps">
+        {path.steps.map((s, i) => (
+          <li key={i} className={s.after ? "live" : "cut"}>
+            <span className="step-no">{i + 1}</span>
+            <span>{s.text}</span>
+            <span className="step-state">{s.after ? "works" : s.before ? "cut" : "never worked"}</span>
+          </li>
+        ))}
+      </ol>
+      {open ? (
+        <p className="path-fix">
+          {first && <strong className="fix-first">Fix this one first.</strong>} Cut it with: {cuts.join(" or ")}.
+          {path.cutBy.includes("sql-string-concat") && " No patch can do this safely; the rewrite with ? placeholders is in the report above."}
+        </p>
+      ) : (
+        <p className="path-fix muted">Closed by your approved fix{cuts.length === 1 ? "" : "es"}: {cuts.join(", ")}.</p>
+      )}
+    </li>
+  );
+}
+
+function ProofPanel({ scanId, approved, mock, results }: { scanId: string; approved: string[]; mock: boolean; results: CheckResult[] }) {
+  const [proof, setProof] = useState<ReplayReport | null>(null);
+  const [ranFor, setRanFor] = useState("");
+  const [proving, setProving] = useState(false);
+  const [error, setError] = useState("");
+  const approvedKey = [...approved].sort().join(",");
+  const stale = proof !== null && ranFor !== approvedKey;
+  const titleOf = (checkId: string) => results.find((r) => r.checkId === checkId)?.title ?? checkId;
+
+  async function handleProve() {
+    setProving(true);
+    setError("");
+    try {
+      const result = await proveFix(scanId);
+      setProof(result);
+      setRanFor(approvedKey);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "The replay did not finish.");
+    } finally {
+      setProving(false);
+    }
+  }
+
+  const attacks = proof?.attacks ?? [];
+  const blocked = attacks.filter((a) => a.verdict === "blocked").length;
+  const rank = (p: AttackPath) => (p.openAfter ? 0 : 2) + (p.impact === "critical" ? 0 : 1);
+  const paths = [...(proof?.paths ?? [])].sort((a, b) => rank(a) - rank(b));
+  const openPaths = paths.filter((p) => p.openAfter).length;
+  const firstOpen = paths.find((p) => p.openAfter)?.id;
+  const status = proving
+    ? "Replaying attacks."
+    : proof?.available
+      ? `Replay finished. ${blocked} of ${attacks.length} attacks blocked. ${openPaths} attack ${openPaths === 1 ? "path" : "paths"} still open.`
+      : "";
+
+  return (
+    <section className="proof-panel" aria-labelledby="proof-title">
+      <p className="visually-hidden" role="status">
+        {status}
+      </p>
+      <div className="proof-heading">
+        <div>
+          <h2 id="proof-title">Proof of fix</h2>
+          <p className="muted">
+            We boot the demo shop twice, as scanned and with your approved fixes, then run the same attacks on both.
+            Each attack comes with a check that real customers still get through.
+          </p>
+        </div>
+        <button className="button primary" onClick={handleProve} disabled={proving || mock || approved.length === 0}>
+          {proving ? "Replaying…" : proof ? "Replay again" : "Replay the attacks"}
+        </button>
+      </div>
+
+      {mock && <p className="muted">Attack replay needs the scan server. Demo data cannot be attacked.</p>}
+      {!mock && approved.length === 0 && !proof && <p className="muted">Approve at least one fix above, then replay.</p>}
+      {proving && <div className="state-box">Attacking both copies of the shop… about 3 seconds.</div>}
+      {error && <div className="state-box error">{error}</div>}
+      {stale && !proving && <p className="stale-note">Your approved fixes changed since this run. Replay to update it.</p>}
+
+      {proof && !proof.available && <div className="state-box">{proof.reason ?? "Replay is not available here."}</div>}
+
+      {proof?.available && (
+        <>
+          <div className="proof-summary">
+            <div>
+              <strong>
+                {blocked}/{attacks.length}
+              </strong>
+              <span>attacks blocked</span>
+            </div>
+            <div>
+              <strong>
+                {paths.length - openPaths}/{paths.length}
+              </strong>
+              <span>attack paths closed</span>
+            </div>
+            {proof.tests?.ran && (
+              <div className={proof.tests.failed === 0 ? "" : "bad"}>
+                <strong>
+                  {proof.tests.passed}/{proof.tests.passed + proof.tests.failed}
+                </strong>
+                <span>shop tests pass after</span>
+              </div>
+            )}
+            <div>
+              <strong>{(proof.ms / 1000).toFixed(1)}s</strong>
+              <span>replay time</span>
+            </div>
+          </div>
+
+          <h3 className="proof-sub">Attack paths</h3>
+          <p className="muted">Single flaws chain into real harm. A path stays open while every step in it works.</p>
+          <ol className="attack-paths">
+            {paths.map((p) => (
+              <PathCard key={p.id} path={p} first={p.id === firstOpen} titleOf={titleOf} />
+            ))}
+          </ol>
+
+          <h3 className="proof-sub">Receipts</h3>
+          <ul className="receipts">
+            {attacks.map((a) => (
+              <Receipt key={a.id} receipt={a} />
+            ))}
+          </ul>
+          <p className="muted proof-foot">
+            Risk reduced, not removed. Attacks ran against local copies of the demo shop only; no data left the server.
+          </p>
+        </>
+      )}
+    </section>
+  );
+}
+
 type Busy = "" | "scan" | "patches";
 
 export function Dashboard() {
@@ -331,6 +520,7 @@ export function Dashboard() {
   const [approving, setApproving] = useState("");
   const [lang, setLang] = useState<Lang>("en");
   const [repoUrl, setRepoUrl] = useState("");
+  const [demo, setDemo] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const demoStarted = useRef(false);
@@ -339,7 +529,7 @@ export function Dashboard() {
     // StrictMode runs effects twice in dev; one demo scan is enough.
     if (demoStarted.current) return;
     demoStarted.current = true;
-    if (new URLSearchParams(window.location.search).get("demo") === "1") void runScan(createDemoScan);
+    if (new URLSearchParams(window.location.search).get("demo") === "1") void runScan(createDemoScan, [], true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -347,8 +537,9 @@ export function Dashboard() {
     if (report) headingRef.current?.focus();
   }, [report]);
 
-  async function runScan(start: () => Promise<ScanResponse>, nextNotes: string[] = []) {
+  async function runScan(start: () => Promise<ScanResponse>, nextNotes: string[] = [], isDemo = false) {
     setBusy("scan");
+    setDemo(isDemo);
     setError("");
     setNotes(nextNotes);
     setReport(null);
@@ -500,7 +691,7 @@ export function Dashboard() {
               <small id="repo-note">Only scan repos you own or have permission to scan. No code is run.</small>
             </form>
           <div className="start-actions">
-            <button className="button secondary" onClick={() => runScan(createDemoScan)} disabled={busy !== ""}>
+            <button className="button secondary" onClick={() => runScan(createDemoScan, [], true)} disabled={busy !== ""}>
               Scan the demo shop
             </button>
             <button className="button secondary" onClick={() => inputRef.current?.click()} disabled={busy !== ""}>
@@ -626,6 +817,10 @@ export function Dashboard() {
                 </div>
               )}
             </section>
+
+            {demo && patchResult && patches.length > 0 && (
+              <ProofPanel key={scanId} scanId={scanId} approved={approved} mock={mock || patchResult.mock} results={report.results} />
+            )}
           </>
         )}
       </main>

@@ -5,6 +5,7 @@ import {
   renderDiff,
   applyPatch,
   patchArtifacts,
+  replayDemo,
   type RepoSnapshot,
   type ScanReport,
   type Patch,
@@ -15,6 +16,8 @@ import {
 } from "@siidekick/engine";
 import * as z from "zod";
 import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { createStore, RecordTooLargeError, type Store, type ScanRecord } from "./store.js";
 import { fetchGithubRepo, GithubError } from "./github.js";
 
@@ -94,17 +97,33 @@ function matchPath(pattern: string, pathname: string): Record<string, string> | 
   return params;
 }
 
-export function makeRouter(deps: { store: Store; fetch?: typeof fetch }) {
+const DEMO_URL = new URL("./demoRepo.generated.json", import.meta.url);
+
+async function readDemoRepo(): Promise<RepoSnapshot> {
+  return JSON.parse(await readFile(DEMO_URL, "utf8"));
+}
+
+/** node_modules with express and lodash for the replay child: dist/runtime in Lambda, the workspace root in dev. */
+function defaultReplayRuntime(): string | null {
+  const candidates = [new URL("./runtime/node_modules", import.meta.url), new URL("../../../node_modules", import.meta.url)];
+  for (const u of candidates) {
+    const dir = fileURLToPath(u);
+    if (existsSync(`${dir}/express`) && existsSync(`${dir}/lodash`)) return dir;
+  }
+  return null;
+}
+
+export function makeRouter(deps: { store: Store; fetch?: typeof fetch; replayRuntime?: string }) {
   const store = deps.store;
 
   async function healthHandler(): Promise<{ status: number; body: unknown }> {
     return { status: 200, body: { ok: true, checks: registry.length } };
   }
 
-  async function saveScan(repo: RepoSnapshot): Promise<{ status: number; body: unknown }> {
+  async function saveScan(repo: RepoSnapshot, demo = false): Promise<{ status: number; body: unknown }> {
     const report: ScanReport = await runScan({ repo, fetch: deps.fetch ?? fetch }, registry);
     const id = crypto.randomUUID();
-    const record: ScanRecord = { id, createdAt: new Date().toISOString(), repo, report };
+    const record: ScanRecord = { id, createdAt: new Date().toISOString(), repo, report, ...(demo ? { demo: true as const } : {}) };
     await store.put(id, record);
     return { status: 201, body: { id, report } };
   }
@@ -116,8 +135,7 @@ export function makeRouter(deps: { store: Store; fetch?: typeof fetch }) {
   }
 
   async function demoScanHandler(): Promise<{ status: number; body: unknown }> {
-    const demoUrl = new URL("./demoRepo.generated.json", import.meta.url);
-    return saveScan(JSON.parse(await readFile(demoUrl, "utf8")));
+    return saveScan(await readDemoRepo(), true);
   }
 
   async function githubScanHandler(_params: Record<string, string>, body: unknown): Promise<{ status: number; body: unknown }> {
@@ -161,7 +179,7 @@ export function makeRouter(deps: { store: Store; fetch?: typeof fetch }) {
       if (!result || result.passed || !check.fix) continue;
       let patch: Patch | null;
       try {
-        patch = await check.fix({ repo: current }, result.findings);
+        patch = await check.fix({ repo: current, fetch: deps.fetch ?? fetch }, result.findings);
       } catch (err) {
         // A crashing fixer is that check's problem; skip it and keep applying the rest.
         console.error(`check ${check.id} fix threw:`, err);
@@ -178,7 +196,7 @@ export function makeRouter(deps: { store: Store; fetch?: typeof fetch }) {
       }
     }
 
-    const afterReport: ScanReport = await runScan({ repo: current }, registry);
+    const afterReport: ScanReport = await runScan({ repo: current, fetch: deps.fetch ?? fetch }, registry);
     const status: "rescan-clean" | "partial" = afterReport.passed === afterReport.total ? "rescan-clean" : "partial";
 
     const updated: ScanRecord = {
@@ -206,16 +224,16 @@ export function makeRouter(deps: { store: Store; fetch?: typeof fetch }) {
    * generated against the repo with every earlier patch applied), so replaying a subset would hit
    * before-mismatches. Fixers are deterministic, so approved ones are re-run against the original repo.
    */
-  async function approvedSnapshot(record: ScanRecord): Promise<{ snapshot: RepoSnapshot; applied: Patch[] }> {
+  async function approvedSnapshot(record: ScanRecord, base: RepoSnapshot = record.repo): Promise<{ snapshot: RepoSnapshot; applied: Patch[] }> {
     const approved = new Set((record.patches ?? []).filter((p) => p.approved).map((p) => p.patchId));
-    let current: RepoSnapshot = { name: record.repo.name, files: [...record.repo.files] };
+    let current: RepoSnapshot = { name: base.name, files: [...base.files] };
     const applied: Patch[] = [];
     for (const check of registry) {
       const result = record.report.results.find((r) => r.checkId === check.id);
       if (!result || result.passed || !check.fix) continue;
       let patch: Patch | null;
       try {
-        patch = await check.fix({ repo: current }, result.findings);
+        patch = await check.fix({ repo: current, fetch: deps.fetch ?? fetch }, result.findings);
       } catch {
         continue;
       }
@@ -238,7 +256,7 @@ export function makeRouter(deps: { store: Store; fetch?: typeof fetch }) {
     patch.approved = true;
     const approved = patches.filter((p) => p.approved).map((p) => p.patchId);
     await store.put(params.id, record);
-    const rescan = await runScan({ repo: (await approvedSnapshot(record)).snapshot }, registry);
+    const rescan = await runScan({ repo: (await approvedSnapshot(record)).snapshot, fetch: deps.fetch ?? fetch }, registry);
     return { status: 200, body: { approved, score: rescan.score, passed: rescan.passed, total: rescan.total } };
   }
 
@@ -292,6 +310,22 @@ export function makeRouter(deps: { store: Store; fetch?: typeof fetch }) {
     return { status: 200, body: { files } };
   }
 
+  /**
+   * Proof of fix: boots the demo shop before and after the approved patches and fires the same attacks at both.
+   * Only the bundled demo is ever executed, never code a visitor sent, so `before` is read from disk, not the record.
+   */
+  async function proveHandler(params: Record<string, string>): Promise<{ status: number; body: unknown }> {
+    if (!UUID_RE.test(params.id)) return { status: 400, body: { error: "invalid id" } };
+    const record = await store.get(params.id);
+    if (!record) return { status: 404, body: { error: "not found" } };
+    if (!record.demo) return { status: 409, body: { error: "attack replay runs on the demo shop only" } };
+    const runtimeDir = deps.replayRuntime ?? defaultReplayRuntime();
+    if (!runtimeDir) return { status: 200, body: { available: false, reason: "replay unavailable here: runtime not bundled", attacks: [], paths: [], ms: 0 } };
+    const before = await readDemoRepo();
+    const { snapshot: after } = await approvedSnapshot(record, before);
+    return { status: 200, body: await replayDemo({ before, after, runtimeDir }) };
+  }
+
   const routes: RouteDef[] = [
     { method: "GET", path: "api/health", handler: healthHandler },
     { method: "POST", path: "api/scans", handler: createScanHandler },
@@ -302,6 +336,7 @@ export function makeRouter(deps: { store: Store; fetch?: typeof fetch }) {
     { method: "POST", path: "api/scans/:id/patches/:patchId/approve", handler: approveHandler },
     { method: "POST", path: "api/scans/:id/patches/:patchId/check", handler: checkHandler },
     { method: "GET", path: "api/scans/:id/download", handler: downloadHandler },
+    { method: "POST", path: "api/scans/:id/prove", handler: proveHandler },
   ];
 
   async function handle(req: {
