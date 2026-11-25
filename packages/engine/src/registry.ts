@@ -26,11 +26,16 @@ export async function runScan(ctx: CheckContext, checks: Check[] = registry): Pr
       }
     }),
   );
+  return summarize(ctx.repo.name, startedAt, results);
+}
+
+/** Severity-weighted score over the checks that applied; shared by repo and website scans. */
+export function summarize(repo: string, startedAt: string, results: CheckResult[]): ScanReport {
   const applicable = results.filter((r) => !r.skipped);
   const total = applicable.reduce((s, r) => s + WEIGHT[r.severity], 0);
   const got = applicable.reduce((s, r) => s + (r.passed ? WEIGHT[r.severity] : 0), 0);
   return {
-    repo: ctx.repo.name,
+    repo,
     startedAt,
     score: total === 0 ? 100 : Math.round((got / total) * 100),
     passed: applicable.filter((r) => r.passed).length,

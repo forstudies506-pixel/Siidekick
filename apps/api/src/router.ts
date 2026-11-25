@@ -13,6 +13,8 @@ import {
   type DiffLine,
   type Check,
   type FileEdit,
+  runSiteScan,
+  type SiteSnapshot,
 } from "@siidekick/engine";
 import * as z from "zod";
 import { readFile } from "node:fs/promises";
@@ -21,6 +23,7 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { createStore, RecordTooLargeError, type Store, type ScanRecord } from "./store.js";
 import { fetchGithubRepo, GithubError } from "./github.js";
+import { fetchSite, SiteError, takeScanSlot } from "./site.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -33,6 +36,7 @@ const scanBodySchema = z.object({
 });
 
 const githubBodySchema = z.object({ url: z.string().max(300) });
+const siteBodySchema = z.object({ url: z.string().min(1).max(2048) });
 
 function validatePath(p: string): string | null {
   if (p.includes("\0")) return "path must not contain NUL";
@@ -144,7 +148,12 @@ function defaultReplayRuntime(): string | null {
   return null;
 }
 
-export function makeRouter(deps: { store: Store; fetch?: typeof fetch; replayRuntime?: string }) {
+export function makeRouter(deps: {
+  store: Store;
+  fetch?: typeof fetch;
+  replayRuntime?: string;
+  fetchSite?: (url: string) => Promise<SiteSnapshot>;
+}) {
   const store = deps.store;
   const scanFetch = cachedScanFetch(deps.fetch ?? fetch);
 
@@ -189,6 +198,32 @@ export function makeRouter(deps: { store: Store; fetch?: typeof fetch; replayRun
     }
   }
 
+  async function siteScanHandler(_params: Record<string, string>, body: unknown): Promise<{ status: number; body: unknown }> {
+    const parsed = siteBodySchema.safeParse(body);
+    if (!parsed.success) return { status: 400, body: { error: "invalid request body" } };
+    if (!takeScanSlot()) return { status: 429, body: { error: "too many website scans right now; try again in a minute" } };
+    let snap: SiteSnapshot;
+    try {
+      snap = await (deps.fetchSite ?? fetchSite)(parsed.data.url);
+    } catch (err) {
+      if (err instanceof SiteError) return { status: err.status, body: { error: err.message } };
+      throw err;
+    }
+    const report = runSiteScan(snap);
+    const id = crypto.randomUUID();
+    const site = { url: snap.requested, finalUrl: snap.url, fetchedAt: snap.fetchedAt };
+    // The page itself is not stored: it can be large and it is the site's content, not ours.
+    await store.put(id, {
+      id,
+      createdAt: new Date().toISOString(),
+      repo: { name: new URL(snap.url).host, files: [] },
+      report,
+      kind: "site",
+      site,
+    });
+    return { status: 201, body: { id, report, kind: "site", site } };
+  }
+
   async function getScanHandler(params: Record<string, string>): Promise<{ status: number; body: unknown }> {
     if (!UUID_RE.test(params.id)) return { status: 400, body: { error: "invalid id" } };
     const record = await store.get(params.id);
@@ -203,6 +238,7 @@ export function makeRouter(deps: { store: Store; fetch?: typeof fetch; replayRun
         after: record.after,
         omitted: record.omitted,
         demo: record.demo === true,
+        ...(record.kind ? { kind: record.kind, site: record.site } : {}),
         ...(anyApproved ? { approvedSummary: await approvedSummary(record) } : {}),
       },
     };
@@ -212,6 +248,7 @@ export function makeRouter(deps: { store: Store; fetch?: typeof fetch; replayRun
     if (!UUID_RE.test(params.id)) return { status: 400, body: { error: "invalid id" } };
     const record = await store.get(params.id);
     if (!record) return { status: 404, body: { error: "not found" } };
+    if (record.kind === "site") return { status: 400, body: { error: "website scans report fixes; there is no code to patch" } };
 
     let current: RepoSnapshot = { name: record.repo.name, files: [...record.repo.files] };
     const beforeReport: ScanReport = record.report;
@@ -386,6 +423,7 @@ export function makeRouter(deps: { store: Store; fetch?: typeof fetch; replayRun
     { method: "POST", path: "api/scans", handler: createScanHandler },
     { method: "POST", path: "api/scans/demo", handler: demoScanHandler },
     { method: "POST", path: "api/scans/github", handler: githubScanHandler },
+    { method: "POST", path: "api/sites", handler: siteScanHandler },
     { method: "GET", path: "api/scans/:id", handler: getScanHandler },
     { method: "POST", path: "api/scans/:id/patches", handler: patchesHandler },
     { method: "POST", path: "api/scans/:id/patches/:patchId/approve", handler: approveHandler },

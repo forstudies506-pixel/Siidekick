@@ -27,6 +27,9 @@ export interface ScanRecord {
   demo?: true;
   // Text files left out of a GitHub repo past the size caps; the report covers the rest.
   omitted?: number;
+  // Set by POST /api/sites: a passive scan of a live website. There is no code, so no patches.
+  kind?: "site";
+  site?: { url: string; finalUrl: string; fetchedAt: string };
 }
 
 export interface Store {

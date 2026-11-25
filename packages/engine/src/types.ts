@@ -39,6 +39,8 @@ export interface Finding {
   evidence?: string;
   /** Plain-language reason this matters. */
   explanation: string;
+  /** Copy-ready fix for report-only findings, e.g. the header line for the owner's host. */
+  remedy?: string;
 }
 
 /** additive: only adds lines/files. minimal-edit: may change a few declared lines (ROADMAP §9). */

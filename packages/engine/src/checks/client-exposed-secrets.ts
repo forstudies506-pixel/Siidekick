@@ -14,9 +14,9 @@ const SECRET_NAME =
 /** Keys that are public by design: Supabase anon, Stripe publishable, Firebase web config, reCAPTCHA site key. */
 const PUBLIC_BY_DESIGN = /ANON|PUBLISHABLE|FIREBASE_API_KEY|SITE_KEY|MEASUREMENT_ID/;
 
-const LLM_HOSTS = /https:\/\/(api\.openai\.com|api\.anthropic\.com|generativelanguage\.googleapis\.com|api\.groq\.com|api\.mistral\.ai|openrouter\.ai\/api|api\.deepseek\.com)/g;
+export const LLM_HOSTS = /https:\/\/(api\.openai\.com|api\.anthropic\.com|generativelanguage\.googleapis\.com|api\.groq\.com|api\.mistral\.ai|openrouter\.ai\/api|api\.deepseek\.com)/g;
 const SERVER_PATH = /(^|\/)(server|api|functions|backend|lambda|supabase\/functions|scripts)\//;
-const JWT = /eyJ[A-Za-z0-9_-]{10,}\.(eyJ[A-Za-z0-9_-]{10,})\.[A-Za-z0-9_-]{10,}/g;
+export const JWT = /eyJ[A-Za-z0-9_-]{10,}\.(eyJ[A-Za-z0-9_-]{10,})\.[A-Za-z0-9_-]{10,}/g;
 
 /** A file whose code runs in the browser: component files, "use client", or Vite-style env access. */
 function isClientFile(path: string, content: string): boolean {
@@ -24,7 +24,7 @@ function isClientFile(path: string, content: string): boolean {
   return /\.(jsx|tsx|vue|svelte|astro|html)$/.test(path) || /^\s*["']use client["']/m.test(content) || content.includes("import.meta.env");
 }
 
-function jwtRole(payload: string): string | null {
+export function jwtRole(payload: string): string | null {
   try {
     const json = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { role?: unknown };
     return typeof json.role === "string" ? json.role : null;

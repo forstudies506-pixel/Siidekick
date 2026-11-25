@@ -8,7 +8,7 @@ const PLACEHOLDER = /(process\.env|your[_-]|xxx|example|changeme|placeholder|<.+
 
 /** Generic `name = "literal"` where the name says it is a secret. Group 1 = name, 3 = value. */
 const ASSIGN = /\b([A-Za-z0-9_]*(?:api[_-]?key|secret|token|passw(?:or)?d)[A-Za-z0-9_]*)\b["']?\s*[:=]\s*(['"`])([^'"`\s]{8,})\2/gi;
-const VENDOR: Array<[string, RegExp]> = [
+export const VENDOR_SECRETS: Array<[string, RegExp]> = [
   ["AWS access key", /AKIA[0-9A-Z]{16}/g],
   ["Stripe live key", /sk_live_[0-9a-zA-Z]{16,}/g],
   ["GitHub token", /gh[pousr]_[A-Za-z0-9]{36,}/g],
@@ -30,7 +30,7 @@ function findHits(files: { path: string; content: string }[]): Hit[] {
       seen.add(line);
       hits.push({ file: f.path, line, name: m[1], value: m[3], kind: "Hardcoded secret" });
     }
-    for (const [kind, re] of VENDOR) {
+    for (const [kind, re] of VENDOR_SECRETS) {
       for (const m of f.content.matchAll(re)) {
         const line = lineAt(f.content, m.index!);
         if (seen.has(line)) continue;
