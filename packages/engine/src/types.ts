@@ -77,6 +77,11 @@ export interface Check {
   title: string;
   severity: Severity;
   mode: FixMode;
+  /**
+   * Optional. Returns a plain reason when the check does not apply to this repo (no server to
+   * harden, for example), else null. A skipped check runs no detector and counts toward no score.
+   */
+  skip?(ctx: CheckContext): string | null;
   detect(ctx: CheckContext): Finding[] | Promise<Finding[]>;
   /** null when nothing to fix or mode is "report". Fixers are deterministic templates, not model output. */
   fix?(ctx: CheckContext, findings: Finding[]): Patch | null | Promise<Patch | null>;
@@ -110,6 +115,8 @@ export interface CheckResult {
   passed: boolean;
   findings: Finding[];
   error?: string;
+  /** Set when the check does not apply to this repo: why. Such a result has passed true and no findings. */
+  skipped?: string;
 }
 
 /**
@@ -122,7 +129,10 @@ export interface ScanReport {
   repo: string;
   startedAt: string;
   score: number; // 0–100
+  /** Applicable checks that passed; skipped checks are in neither passed nor total. */
   passed: number;
   total: number;
+  /** Checks that did not apply to this repo. */
+  skipped?: number;
   results: CheckResult[];
 }

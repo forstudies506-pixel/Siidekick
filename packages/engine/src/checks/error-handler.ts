@@ -1,4 +1,5 @@
 import type { Check, FileEdit, Finding, Patch } from "../types.js";
+import { serverShape } from "../util.js";
 
 const ERROR_HANDLER_SIG = /\(\s*err\s*,\s*req\s*,\s*res\s*,\s*next\s*\)/;
 const EXPORT_OR_LISTEN = /module\.exports\s*=\s*app|app\.listen\(/;
@@ -15,6 +16,10 @@ export const errorHandler: Check = {
   title: "Error handler",
   severity: "medium",
   mode: "auto",
+
+  skip({ repo }) {
+    return serverShape(repo.files).node ? null : "No Node.js HTTP server found. This check reads Express-style error middleware.";
+  },
 
   detect({ repo }): Finding[] {
     if (repo.files.some((f) => ERROR_HANDLER_SIG.test(f.content))) return [];

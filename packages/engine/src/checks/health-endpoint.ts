@@ -1,14 +1,18 @@
-import type { Check, Finding, Patch } from "../types.js";
+import type { Check, Finding, Patch, RepoFile } from "../types.js";
+import { serverShape } from "../util.js";
 
-const HEALTH_ROUTE = new RegExp(`app\\.(get|post|put|delete|patch|all|use)\\s*\\(\\s*['"]\\/(health|healthz)\\b`);
+/** Express-style apps and routers, Flask/FastAPI decorators, and Django path() entries. */
+const HEALTH_ROUTE = /\b\w+\.(get|post|put|delete|patch|route|api_route|all|use)\s*\(\s*['"]\/(api\/)?(health|healthz)\b|\b(re_)?path\(\s*['"]\^?(api\/)?(health|healthz)\b/;
+/** File-routed handlers: api/health.py, app/api/health/route.ts, pages/api/health.js, netlify/functions/health.js. */
+const HEALTH_FILE = /(^|\/)(api|functions)\/(health|healthz)(\.(c|m)?[jt]sx?|\.py|\/route\.[jt]s|\/index\.[jt]s)$/;
 const APP_LINE = /= express\(\)/;
 
 function expressAppFile(files: { path: string; content: string }[]): { path: string; content: string } | undefined {
   return files.find((f) => APP_LINE.test(f.content));
 }
 
-function hasHealthRoute(content: string): boolean {
-  return HEALTH_ROUTE.test(content);
+function hasHealthRoute(f: RepoFile): boolean {
+  return HEALTH_ROUTE.test(f.content) || HEALTH_FILE.test(f.path);
 }
 
 export const healthEndpoint: Check = {
@@ -18,8 +22,13 @@ export const healthEndpoint: Check = {
   severity: "low",
   mode: "auto",
 
+  skip({ repo }) {
+    const s = serverShape(repo.files);
+    return s.node || s.python || s.functions || s.container ? null : "No server or API code found. A static site has no process to health-check.";
+  },
+
   detect({ repo }): Finding[] {
-    if (repo.files.some((f) => hasHealthRoute(f.content))) return [];
+    if (repo.files.some(hasHealthRoute)) return [];
     return [{
       checkId: "health-endpoint",
       title: "No /health or /healthz route",

@@ -1,4 +1,4 @@
-import type { Check, CheckContext, ScanReport, Severity } from "./types.js";
+import type { Check, CheckContext, CheckResult, ScanReport, Severity } from "./types.js";
 import { aiChecks } from "./checks/ai.js";
 import { deliveryChecks } from "./checks/delivery.js";
 import { securityChecks } from "./checks/security.js";
@@ -13,9 +13,11 @@ export async function runScan(ctx: CheckContext, checks: Check[] = registry): Pr
   // Siidekick's own audit trail quotes the code it changed, so scanning it would re-report fixed issues.
   ctx = { ...ctx, repo: { ...ctx.repo, files: ctx.repo.files.filter((f) => !f.path.startsWith(".siidekick/")) } };
   const results = await Promise.all(
-    checks.map(async (c) => {
+    checks.map(async (c): Promise<CheckResult> => {
       const base = { checkId: c.id, title: c.title, group: c.group, severity: c.severity, mode: c.mode };
       try {
+        const skipped = c.skip?.(ctx) ?? null;
+        if (skipped) return { ...base, passed: true, findings: [], skipped };
         const findings = await c.detect(ctx);
         return { ...base, passed: findings.length === 0, findings };
       } catch (err) {
@@ -24,14 +26,16 @@ export async function runScan(ctx: CheckContext, checks: Check[] = registry): Pr
       }
     }),
   );
-  const total = results.reduce((s, r) => s + WEIGHT[r.severity], 0);
-  const got = results.reduce((s, r) => s + (r.passed ? WEIGHT[r.severity] : 0), 0);
+  const applicable = results.filter((r) => !r.skipped);
+  const total = applicable.reduce((s, r) => s + WEIGHT[r.severity], 0);
+  const got = applicable.reduce((s, r) => s + (r.passed ? WEIGHT[r.severity] : 0), 0);
   return {
     repo: ctx.repo.name,
     startedAt,
     score: total === 0 ? 100 : Math.round((got / total) * 100),
-    passed: results.filter((r) => r.passed).length,
-    total: results.length,
+    passed: applicable.filter((r) => r.passed).length,
+    total: applicable.length,
+    skipped: results.length - applicable.length,
     results,
   };
 }

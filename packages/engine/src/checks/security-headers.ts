@@ -1,5 +1,5 @@
 import type { Check, FileEdit, Finding, Patch, RepoFile, RepoSnapshot } from "../types.js";
-import { DOC_EXT, lineAt } from "../util.js";
+import { DOC_EXT, lineAt, serverShape } from "../util.js";
 
 /**
  * Shared Express helpers for the security checks (Phase A). They live here because
@@ -79,6 +79,13 @@ export const securityHeaders: Check = {
   title: "Security headers on responses",
   severity: "high",
   mode: "auto",
+
+  skip({ repo }) {
+    const s = serverShape(repo.files);
+    return s.node || s.python || s.functions || s.container
+      ? null
+      : "No server code found. A static site gets its headers from the host's config, which this check does not read yet.";
+  },
 
   detect({ repo }): Finding[] {
     if (!lacksHeaders(repo.files)) return [];

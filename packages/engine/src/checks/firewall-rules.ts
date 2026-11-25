@@ -1,5 +1,5 @@
 import type { Check, Finding, Patch } from "../types.js";
-import { DOC_EXT } from "../util.js";
+import { DOC_EXT, serverShape } from "../util.js";
 
 const SG_PATH = "infra/security-group.yaml";
 const UFW_PATH = "infra/ufw.sh";
@@ -54,6 +54,13 @@ export const firewallRules: Check = {
   title: "No firewall rules defined",
   severity: "medium",
   mode: "template",
+
+  skip({ repo }) {
+    const s = serverShape(repo.files);
+    return s.node || s.python || s.container
+      ? null
+      : "No long-running server found. Static and serverless hosts manage the network in front of your code.";
+  },
 
   detect({ repo }): Finding[] {
     const hasSgFile = repo.files.some((f) => f.path === SG_PATH);
