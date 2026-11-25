@@ -62,10 +62,10 @@ export function callArgs(content: string, from: number): string[] {
   return args; // unterminated call: no usable handler list
 }
 
-const VENDOR = /(^|\/)(node_modules|dist|build|\.next|out|coverage|venv|\.venv|vendor)\//;
-const TEST_FILE = /(^|\/)(test|tests|__tests__)\/|\.(test|spec)\.[jt]sx?$/;
+export const VENDOR = /(^|\/)(node_modules|dist|build|\.next|out|coverage|venv|\.venv|vendor)\//;
+export const TEST_FILE = /(^|\/)(test|tests|__tests__)\/|\.(test|spec)\.[jt]sx?$/;
 const NODE_SERVER = /\bexpress\s*\(\s*\)|require\(\s*["']express["']\s*\)\s*\(|\bfastify\s*\(|\bnew\s+(Koa|Hono)\s*\(|\bhttps?2?\.createServer\s*\(|\{[^}]*\bcreateServer\b[^}]*\}\s*(?:=\s*require\(\s*|from\s*)["'](?:node:)?https?["']|\bnew\s+Elysia\s*\(/;
-const PY_SERVER = /\b(Flask|FastAPI|Sanic|Quart)\s*\(|\bfrom\s+django\b|\bimport\s+django\b|\baiohttp\.web\b/;
+export const PY_SERVER = /\b(Flask|FastAPI|Sanic|Quart)\s*\(|\bfrom\s+django\b|\bimport\s+django\b|\baiohttp\.web\b/;
 /** File-routed serverless handlers: Vercel/Netlify functions and Next.js route handlers. */
 const FUNCTION_PATH = /(^|\/)(api|netlify\/functions)\/[^/]+(\/[^/]+)*\.(c|m)?[jt]s$|(^|\/)api\/[^/]+\.py$|(^|\/)app\/(.+\/)?route\.[jt]s$|(^|\/)pages\/api\//;
 

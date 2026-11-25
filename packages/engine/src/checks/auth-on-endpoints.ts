@@ -1,8 +1,7 @@
 import type { Check, Finding, Patch, RepoFile } from "../types.js";
-import { CODE_EXT, lineAt, callArgs } from "../util.js";
+import { CODE_EXT, TEST_FILE, VENDOR, lineAt, callArgs } from "../util.js";
 import { findAppFile, insertAfterAppLine, isEsm, siblingPath } from "./security-headers.js";
 
-const SKIP = /(^|\/)node_modules\//;
 /** The admin subtree only: /admin/... and /api/admin/...; the lookahead keeps /administrator out. */
 const ADMIN_ROUTE = /^\/(?:api\/)?admin(?=\/|$)/;
 /** Route forms per the brief: app|router.(get|post|put|patch|delete)('<path>', ...handlers). */
@@ -63,7 +62,8 @@ function mountGuards(files: RepoFile[], routeFile: string, routeOffset: number, 
 function offendingRoutes(files: RepoFile[]): RouteHit[] {
   const hits: RouteHit[] = [];
   for (const file of files) {
-    if (!CODE_EXT.test(file.path) || SKIP.test(file.path)) continue;
+    // Test fixtures hold route strings on purpose; they are not served.
+    if (!CODE_EXT.test(file.path) || VENDOR.test(file.path) || TEST_FILE.test(file.path)) continue;
     for (const m of file.content.matchAll(ROUTE)) {
       const routePath = m[4];
       if (!ADMIN_ROUTE.test(routePath)) continue;

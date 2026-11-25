@@ -25,8 +25,6 @@ _Updated 2026-11-26._ Read `BRAIN.md`, `AGENTS.md`, then this.
 - Replay on Lambda is unverified: Node 22 runtime, writing the two shop copies to `/tmp`, spawning `node` children.
 
 ## Known gaps
-- `auth-on-endpoints` flags route strings inside test fixtures (seen on this repo: `packages/engine/test/auth-on-endpoints.test.ts`); it should skip `TEST_FILE` paths. Owner: kilo.
-- `security-headers` evidence is Node-centric, so Python and Vercel repos get weaker evidence.
 - Stale local API on port 8787 (PID 30531) during dev; dev used 8790.
 
 ## Next

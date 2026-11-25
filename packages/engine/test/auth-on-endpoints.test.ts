@@ -93,4 +93,11 @@ describe("auth-on-endpoints", () => {
     const guarded = open.replace("adminRouter", "authenticate, adminRouter");
     expect(await authOnEndpoints.detect({ repo: { name: "r", files: [{ path: "server.js", content: guarded }] } })).toEqual([]);
   });
+
+  it("ignores routes in test files and fixtures", async () => {
+    const content = `const app = require('express')();\napp.get('/admin/users', (req, res) => res.end());\n`;
+    for (const path of ["test/admin.test.js", "src/__tests__/routes.ts", "packages/x/tests/fixture.js", "api.spec.ts"]) {
+      expect(await authOnEndpoints.detect({ repo: { name: "r", files: [{ path, content }] } })).toEqual([]);
+    }
+  });
 });

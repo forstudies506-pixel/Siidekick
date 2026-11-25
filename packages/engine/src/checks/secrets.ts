@@ -114,7 +114,7 @@ export const secretsInRepo: Check = {
     return {
       id: "secrets-in-repo-1",
       checkId: "secrets-in-repo",
-      title: `Move ${names.length} hardcoded secret(s) to environment variables`,
+      title: `Move ${names.length} hardcoded ${names.length === 1 ? "secret" : "secrets"} to environment variables`,
       class: "minimal-edit",
       reason: "Keys in source are readable by anyone with repo access. After applying, rotate each key with its provider.",
       edits,

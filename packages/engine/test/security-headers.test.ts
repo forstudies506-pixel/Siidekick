@@ -84,4 +84,32 @@ describe("security-headers", () => {
     const f = await securityHeaders.detect({ repo: { ...vuln, files: [...vuln.files, { path: "README.md", content: "We should add helmet and Content-Security-Policy." }] } });
     expect(f.length).toBeGreaterThan(0);
   });
+
+  describe("Python and serverless apps", () => {
+    const scan = (files: { path: string; content: string }[]) => securityHeaders.detect({ repo: { name: "r", files } });
+
+    it("passes a Django project with the clickjacking middleware, and Flask with Talisman", async () => {
+      const settings = `MIDDLEWARE = [\n    "django.middleware.security.SecurityMiddleware",\n    "django.middleware.clickjacking.XFrameOptionsMiddleware",\n]\n`;
+      expect(await scan([{ path: "mysite/settings.py", content: settings }, { path: "manage.py", content: "import django" }])).toEqual([]);
+      const flask = `from flask import Flask\nfrom flask_talisman import Talisman\napp = Flask(__name__)\nTalisman(app)\n`;
+      expect(await scan([{ path: "app.py", content: flask }])).toEqual([]);
+    });
+
+    it("flags a bare Flask app at its server line, with Python advice and no Express patch", async () => {
+      const files = [{ path: "app.py", content: `from flask import Flask\napp = Flask(__name__)\n` }];
+      const [f] = await scan(files);
+      expect(f).toMatchObject({ file: "app.py", line: 2 });
+      expect(f.evidence).toMatch(/Talisman/);
+      expect(f.evidence).not.toMatch(/helmet/);
+      expect(securityHeaders.fix!({ repo: { name: "r", files } }, [])).toBeNull();
+    });
+
+    it("flags serverless functions with host-config advice, and passes when vercel.json sets headers", async () => {
+      const fn = { path: "api/users.ts", content: "export default function handler() {}" };
+      const [f] = await scan([fn]);
+      expect(f.evidence).toMatch(/vercel\.json/);
+      const vercel = { path: "vercel.json", content: JSON.stringify({ headers: [{ source: "/(.*)", headers: [{ key: "X-Frame-Options", value: "DENY" }] }] }) };
+      expect(await scan([fn, vercel])).toEqual([]);
+    });
+  });
 });

@@ -1,5 +1,5 @@
 import type { Check, FileEdit, Finding, Patch, RepoFile, RepoSnapshot } from "../types.js";
-import { DOC_EXT, lineAt, serverShape } from "../util.js";
+import { DOC_EXT, PY_SERVER, lineAt, serverShape } from "../util.js";
 
 /**
  * Shared Express helpers for the security checks (Phase A). They live here because
@@ -50,12 +50,49 @@ export function siblingPath(appPath: string, name: string): string {
   return i === -1 ? name : appPath.slice(0, i + 1) + name;
 }
 
-const HELMET = /require\s*\(\s*['"]helmet['"]\s*\)|from\s+['"]helmet['"]/;
+/** Libraries and middleware that set these headers: helmet (Node), Talisman and secure (Python), Django's clickjacking middleware. */
+const HEADER_LIB =
+  /require\s*\(\s*['"]helmet['"]\s*\)|from\s+['"]helmet['"]|\bfrom\s+flask_talisman\b|\bTalisman\s*\(|\bfrom\s+secure\s+import\b|\bsecure\.Secure\s*\(|XFrameOptionsMiddleware/;
+/** Set by hand in code or in host config (vercel.json, netlify.toml, _headers). */
 const HEADERS = /Content-Security-Policy|X-Frame-Options/i;
 
 function lacksHeaders(files: RepoFile[]): boolean {
   const visible = files.filter((f) => !skip(f.path));
-  return !visible.some((f) => HELMET.test(f.content)) && !visible.some((f) => HEADERS.test(f.content));
+  return !visible.some((f) => HEADER_LIB.test(f.content) || HEADERS.test(f.content));
+}
+
+/** Evidence and advice in the repo's own stack, since only the Express case has an automatic patch. */
+function stackAdvice(files: RepoFile[]): Pick<Finding, "file" | "line" | "evidence" | "explanation"> {
+  const risk = "Without these headers a browser can be tricked into framing the app or sniffing response types.";
+  const app = findAppFile(files);
+  if (app) {
+    return {
+      file: app.file.path,
+      line: app.lineNo,
+      evidence: "no helmet import; no Content-Security-Policy or X-Frame-Options set anywhere",
+      explanation: `${risk} Adding conservative defaults reduces that risk; it does not make the app immune to every attack.`,
+    };
+  }
+  const shape = serverShape(files);
+  if (shape.python) {
+    const py = files.find((f) => f.path.endsWith(".py") && !skip(f.path) && PY_SERVER.test(f.content));
+    const m = py ? PY_SERVER.exec(py.content) : null;
+    return {
+      ...(py && m ? { file: py.path, line: lineAt(py.content, m.index) } : {}),
+      evidence: "no Talisman or secure middleware, no Django XFrameOptionsMiddleware, and no Content-Security-Policy or X-Frame-Options header set anywhere",
+      explanation: `${risk} Flask: wrap the app with flask-talisman. Django: keep SecurityMiddleware and XFrameOptionsMiddleware in MIDDLEWARE. FastAPI: add a middleware that sets the headers. This reduces the risk; it does not remove it.`,
+    };
+  }
+  if (shape.functions) {
+    return {
+      evidence: "no headers block in vercel.json, netlify.toml or _headers, and no Content-Security-Policy or X-Frame-Options set in handler code",
+      explanation: `${risk} For file-routed functions the host sets headers: add a "headers" block to vercel.json, a [[headers]] block to netlify.toml, or a _headers file. This reduces the risk; it does not remove it.`,
+    };
+  }
+  return {
+    evidence: "no header library and no Content-Security-Policy or X-Frame-Options set anywhere",
+    explanation: `${risk} Set conservative defaults in the server or its host config. This reduces the risk; it does not remove it.`,
+  };
 }
 
 function securityModule(esm: boolean): string {
@@ -89,20 +126,7 @@ export const securityHeaders: Check = {
 
   detect({ repo }): Finding[] {
     if (!lacksHeaders(repo.files)) return [];
-    const loc = findAppFile(repo.files);
-    const finding: Finding = {
-      checkId: "security-headers",
-      title: "No security headers on responses",
-      severity: "high",
-      evidence: "no helmet import; no Content-Security-Policy or X-Frame-Options set anywhere",
-      explanation:
-        "Without these headers a browser can be tricked into framing the app or sniffing response types. Adding conservative defaults reduces that risk; it does not make the app immune to every attack.",
-    };
-    if (loc) {
-      finding.file = loc.file.path;
-      finding.line = loc.lineNo;
-    }
-    return [finding];
+    return [{ checkId: "security-headers", title: "No security headers on responses", severity: "high", ...stackAdvice(repo.files) }];
   },
 
   fix({ repo }): Patch | null {
