@@ -1,0 +1,12 @@
+{
+  "name": "siidekick",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*", "apps/*", "demo/*"],
+  "scripts": {
+    "test": "npm test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "scan:demo": "npm run scan -w @siidekick/engine -- ../../demo/vulnerable-app"
+  },
+  "engines": { "node": ">=20" }
+}

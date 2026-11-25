@@ -1,20 +1,30 @@
-# Cyber Hardening Assistant
+# Siidekick
 
-An AI helper that scans an existing website or web app, then adds the missing security, reliability and UI-speed pieces **without removing or replacing the owner's code**.
+Siidekick scans a small team's website repo, explains each security and reliability risk in plain words, and proposes small **add-only** patches. A diff guard rejects any patch that would delete the owner's code. The owner approves each patch, then a rescan shows the score change.
+
+**We never replace your code.** It reduces risk; it does not make anything "unhackable".
 
 Built for the Campus to Cloud Hackathon (AWS, Techfest 2026-27).
 
-## What it does
+## Run it
+```bash
+npm install
+npm test
+npm run scan:demo                                      # scan the planted-flaw demo app
+npx tsx packages/engine/src/cli.ts fix demo/vulnerable-app --out /tmp/fixed
+```
+`fix` is a dry run by default; `--out` writes a patched copy and leaves the original untouched.
 
-- Checks identity and admin access, application security, firewalls and hosting, secrets, dependencies and monitoring.
-- Runs a registry of 32 production-readiness checks, including CI/CD, backups, rollback, error tracking, email authentication, AI-feature safety and audit evidence.
-- Proposes small UI speed fixes: a lighter login page and smoother animations.
-- Enforces a "diff guard": any patch that deletes user code outside approved patterns is rejected automatically.
-
-## Read the full roadmap
-
-[docs/ROADMAP.md](docs/ROADMAP.md) has the complete guide: pipeline, per-layer steps, safe-patching rules, the 32-check registry, testing plan and the 6-day build timeline.
+## Layout
+- `packages/engine`: checks, diff guard, scanner, CLI
+- `apps/api`: HTTP API (AWS Lambda + local server)
+- `apps/web`: landing page and dashboard
+- `demo/vulnerable-app`: demo shop with planted flaws
+- `infra`: AWS SAM template (Lambda, API Gateway, DynamoDB, S3, CloudFront)
 
 ## Status
+- Implemented and tested: engine core, diff guard, `secrets-in-repo` check, CLI.
+- In progress: 11 more checks, demo app, API, web, AWS deploy. See `HANDOFF.md`.
 
-Planning phase. The roadmap is the current deliverable; the implementation follows the timeline in section 10 of the roadmap.
+## Docs
+[ROADMAP](docs/ROADMAP.md) (full spec) · [PLAN](docs/PLAN.md) (hackathon plan) · [BRAIN](BRAIN.md) (repo map) · [AGENTS](AGENTS.md) (team rules) · [HANDOFF](HANDOFF.md) (current state)
