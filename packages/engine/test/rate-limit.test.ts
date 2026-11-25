@@ -81,4 +81,9 @@ describe("rate-limit", () => {
     expect(fixed.files.find((x) => x.path === "src/rateLimit.js")?.content).toContain("export default");
     expect(await rateLimitCheck.detect({ repo: fixed })).toEqual([]);
   });
+
+  it("does not count a limiter mentioned only in docs", async () => {
+    const f = await rateLimitCheck.detect({ repo: { ...vuln, files: [...vuln.files, { path: "FLAWS.md", content: "No rate-limit on /login." }] } });
+    expect(f.length).toBeGreaterThan(0);
+  });
 });

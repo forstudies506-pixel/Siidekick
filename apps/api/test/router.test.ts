@@ -121,6 +121,10 @@ describe("router", () => {
     const paths = (dl.body as { files: Array<{ path: string }> }).files.map((f) => f.path);
     expect(paths).toContain("server.js");
     expect(paths).toContain(".env.example");
+    expect(paths).toContain(`.siidekick/${patchId}.patch`);
+    expect(paths).toContain("SIIDEKICK_LOG.md");
+    const log = (dl.body as { files: Array<{ path: string; content: string }> }).files.find((f) => f.path === "SIIDEKICK_LOG.md")!;
+    expect(log.content).toContain(`git apply -R .siidekick/${patchId}.patch`);
   });
 
   it("download leaves out edits from patches that were not approved", async () => {

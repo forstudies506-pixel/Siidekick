@@ -9,6 +9,8 @@ const WEIGHT: Record<Severity, number> = { critical: 5, high: 3, medium: 2, low:
 
 export async function runScan(ctx: CheckContext, checks: Check[] = registry): Promise<ScanReport> {
   const startedAt = new Date().toISOString();
+  // Siidekick's own audit trail quotes the code it changed, so scanning it would re-report fixed issues.
+  ctx = { ...ctx, repo: { ...ctx.repo, files: ctx.repo.files.filter((f) => !f.path.startsWith(".siidekick/")) } };
   const results = await Promise.all(
     checks.map(async (c) => {
       const base = { checkId: c.id, title: c.title, group: c.group, severity: c.severity, mode: c.mode };

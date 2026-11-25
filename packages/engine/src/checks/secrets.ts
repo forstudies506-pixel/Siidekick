@@ -2,6 +2,8 @@ import type { Check, FileEdit, Finding, Patch } from "../types.js";
 import { lineAt, redact } from "../util.js";
 
 const SKIP_FILE = /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|\.env\.example)$/;
+// Test fixtures hold made-up passwords the tests depend on; rewriting them breaks the owner's tests.
+const TEST_PATH = /(^|\/)(test|tests|__tests__)(\/|$)|\.(test|spec)\.[jt]sx?$/;
 const PLACEHOLDER = /(process\.env|your[_-]|xxx|example|changeme|placeholder|<.+>)/i;
 
 /** Generic `name = "literal"` where the name says it is a secret. Group 1 = name, 3 = value. */
@@ -20,7 +22,9 @@ function findHits(files: { path: string; content: string }[]): Hit[] {
   for (const f of files) {
     if (SKIP_FILE.test(f.path)) continue;
     const seen = new Set<number>();
-    for (const m of f.content.matchAll(ASSIGN)) {
+    const isTest = TEST_PATH.test(f.path);
+    // In tests only vendor-format keys count: those are real credentials wherever they sit.
+    for (const m of isTest ? [] : f.content.matchAll(ASSIGN)) {
       if (PLACEHOLDER.test(m[3])) continue;
       const line = lineAt(f.content, m.index!);
       seen.add(line);
@@ -36,6 +40,11 @@ function findHits(files: { path: string; content: string }[]): Hit[] {
     }
   }
   return hits;
+}
+
+/** Secret literals in `files`, so callers can mask them before writing anything the owner might commit. */
+export function secretValues(files: { path: string; content: string }[]): string[] {
+  return [...new Set(findHits(files).map((h) => h.value))];
 }
 
 function envName(name: string | undefined, i: number): string {
@@ -65,7 +74,7 @@ export const secretsInRepo: Check = {
   },
 
   fix({ repo }): Patch | null {
-    const hits = findHits(repo.files);
+    const hits = findHits(repo.files).filter((h) => !TEST_PATH.test(h.file));
     if (hits.length === 0) return null;
     const byFile = new Map<string, string>(repo.files.map((f) => [f.path, f.content]));
     const edits: FileEdit[] = [];

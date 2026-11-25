@@ -1,11 +1,11 @@
 import type { Check, FileEdit, Finding, Patch, RepoFile, RepoSnapshot } from "../types.js";
-import { lineAt } from "../util.js";
+import { DOC_EXT, lineAt } from "../util.js";
 
 /**
  * Shared Express helpers for the security checks (Phase A). They live here because
  * the workstream only owns one file per check; rate-limit.ts imports them from here.
  */
-const SKIP = /(^|\/)node_modules\//;
+const skip = (path: string) => /(^|\/)node_modules\//.test(path) || DOC_EXT.test(path);
 const APP_LINE = /(?:^|\n)[ \t]*(?:(?:const|let|var)\s+)?([A-Za-z_$][\w$]*)(?:\s*:[^=\n]+)?[ \t]*=[ \t]*express\s*\(/;
 const ESM_SYNTAX = /(^|\n)[ \t]*import\s+(?:[\w$*{},\s]+from\s+)?['"]|(^|\n)[ \t]*export\s+(?:default\s+)?(?:async\s+)?(?:const|let|var|function|class|\{)/;
 
@@ -20,7 +20,7 @@ export interface AppLocation {
 /** First file where an Express app is created; insertions go right after that line. */
 export function findAppFile(files: RepoFile[]): AppLocation | null {
   for (const file of files) {
-    if (SKIP.test(file.path)) continue;
+    if (skip(file.path)) continue;
     const m = APP_LINE.exec(file.content);
     if (m) {
       const offset = m.index + (m[0].charCodeAt(0) === 10 ? 1 : 0);
@@ -54,7 +54,7 @@ const HELMET = /require\s*\(\s*['"]helmet['"]\s*\)|from\s+['"]helmet['"]/;
 const HEADERS = /Content-Security-Policy|X-Frame-Options/i;
 
 function lacksHeaders(files: RepoFile[]): boolean {
-  const visible = files.filter((f) => !SKIP.test(f.path));
+  const visible = files.filter((f) => !skip(f.path));
   return !visible.some((f) => HELMET.test(f.content)) && !visible.some((f) => HEADERS.test(f.content));
 }
 

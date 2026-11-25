@@ -2,7 +2,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, join, relative, sep } from "node:path";
 import type { RepoSnapshot } from "./types.js";
 
-const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", ".next", "coverage", ".data"]);
+const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", ".next", "coverage", ".data", ".siidekick"]);
 const MAX_BYTES = 512 * 1024;
 
 /** Reads a local folder into memory. Text files only; nothing is executed. */

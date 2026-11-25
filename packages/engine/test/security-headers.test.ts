@@ -79,4 +79,9 @@ describe("security-headers", () => {
     expect(fixed.files.find((x) => x.path === "src/security.js")?.content).toContain("export default");
     expect(await securityHeaders.detect({ repo: fixed })).toEqual([]);
   });
+
+  it("does not count headers mentioned only in docs", async () => {
+    const f = await securityHeaders.detect({ repo: { ...vuln, files: [...vuln.files, { path: "README.md", content: "We should add helmet and Content-Security-Policy." }] } });
+    expect(f.length).toBeGreaterThan(0);
+  });
 });

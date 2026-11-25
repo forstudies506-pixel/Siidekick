@@ -38,4 +38,28 @@ describe("secrets-in-repo", () => {
     expect(fixed.files.find((x) => x.path === ".gitignore")!.content).toMatch(/^\.env$/m);
     expect(await secretsInRepo.detect({ repo: fixed })).toEqual([]);
   });
+
+  it("ignores made-up passwords in test files but still reports a vendor key there, without rewriting the test", async () => {
+    const tests: RepoSnapshot = {
+      name: "t",
+      files: [
+        { path: "test/app.test.js", content: "const password = 'password123';\nlogin({ password: 'wrong-password' });\n" },
+        { path: "src/api.spec.ts", content: `const key = '${KEY}';\n` },
+      ],
+    };
+    const f = await secretsInRepo.detect({ repo: tests });
+    expect(f.map((x) => x.file)).toEqual(["src/api.spec.ts"]);
+    expect(await secretsInRepo.fix!({ repo: tests }, f)).toBeNull();
+  });
+});
+
+describe("scan skips Siidekick's own artifacts", () => {
+  it("does not fail secrets for a key quoted in .siidekick/", async () => {
+    const { runScan } = await import("../src/registry.js");
+    const report = await runScan({ repo: { name: "a", files: [
+      { path: ".siidekick/secrets-in-repo-1.patch", content: "-const API_KEY = 'abcd1234efgh5678wxyz';\n" },
+      { path: "server.js", content: "const API_KEY = process.env.API_KEY;\n" },
+    ] } });
+    expect(report.results.find((r) => r.checkId === "secrets-in-repo")!.passed).toBe(true);
+  });
 });

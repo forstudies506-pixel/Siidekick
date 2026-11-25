@@ -1,4 +1,4 @@
-import type { Check, FileEdit, Finding, Patch } from "../types.js";
+import type { Check, Finding, Patch } from "../types.js";
 
 const MIN_README_CHARS = 200;
 const README_PATH = "README.md";

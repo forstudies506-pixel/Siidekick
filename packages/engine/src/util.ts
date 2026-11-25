@@ -12,3 +12,5 @@ export function lineAt(content: string, offset: number): number {
 }
 
 export const CODE_EXT = /\.(c|m)?(j|t)sx?$/;
+/** Prose files: a README that mentions helmet or ufw is not the protection itself. */
+export const DOC_EXT = /\.(md|mdx|markdown|txt|rst|adoc)$/i;

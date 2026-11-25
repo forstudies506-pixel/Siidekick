@@ -1,5 +1,4 @@
-import type { Check, FileEdit, Finding, Patch } from "../types.js";
-import { lineAt } from "../util.js";
+import type { Check, Finding, Patch } from "../types.js";
 
 const HEALTH_ROUTE = new RegExp(`app\\.(get|post|put|delete|patch|all|use)\\s*\\(\\s*['"]\\/(health|healthz)\\b`);
 const APP_LINE = /= express\(\)/;

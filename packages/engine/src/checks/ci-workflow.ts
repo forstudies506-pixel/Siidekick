@@ -1,4 +1,4 @@
-import type { Check, FileEdit, Finding, Patch } from "../types.js";
+import type { Check, Finding, Patch } from "../types.js";
 
 const WORKFLOW_DIR = ".github/workflows/";
 const WORKFLOW_PATH = ".github/workflows/siidekick.yml";

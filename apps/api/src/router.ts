@@ -4,6 +4,7 @@ import {
   guardPatch,
   renderDiff,
   applyPatch,
+  patchArtifacts,
   type RepoSnapshot,
   type ScanReport,
   type Patch,
@@ -178,9 +179,10 @@ export function makeRouter(deps: { store: Store }) {
    * generated against the repo with every earlier patch applied), so replaying a subset would hit
    * before-mismatches. Fixers are deterministic, so approved ones are re-run against the original repo.
    */
-  async function approvedSnapshot(record: ScanRecord): Promise<RepoSnapshot> {
+  async function approvedSnapshot(record: ScanRecord): Promise<{ snapshot: RepoSnapshot; applied: Patch[] }> {
     const approved = new Set((record.patches ?? []).filter((p) => p.approved).map((p) => p.patchId));
     let current: RepoSnapshot = { name: record.repo.name, files: [...record.repo.files] };
+    const applied: Patch[] = [];
     for (const check of registry) {
       const result = record.report.results.find((r) => r.checkId === check.id);
       if (!result || result.passed || !check.fix) continue;
@@ -192,8 +194,9 @@ export function makeRouter(deps: { store: Store }) {
       }
       if (!patch || !approved.has(patch.id) || !guardPatch(current, patch).ok) continue;
       current = applyPatch(current, patch);
+      applied.push(patch);
     }
-    return current;
+    return { snapshot: current, applied };
   }
 
   async function approveHandler(params: Record<string, string>): Promise<{ status: number; body: unknown }> {
@@ -208,7 +211,7 @@ export function makeRouter(deps: { store: Store }) {
     patch.approved = true;
     const approved = patches.filter((p) => p.approved).map((p) => p.patchId);
     await store.put(params.id, record);
-    const rescan = await runScan({ repo: await approvedSnapshot(record) }, registry);
+    const rescan = await runScan({ repo: (await approvedSnapshot(record)).snapshot }, registry);
     return { status: 200, body: { approved, score: rescan.score, passed: rescan.passed, total: rescan.total } };
   }
 
@@ -217,16 +220,11 @@ export function makeRouter(deps: { store: Store }) {
     const record = await store.get(params.id);
     if (!record) return { status: 404, body: { error: "not found" } };
 
-    const patches = record.patches ?? [];
-    const approvedPaths = new Set<string>();
-    for (const p of patches) {
-      if (p.approved) {
-        for (const d of p.diff) approvedPaths.add(d.path);
-      }
-    }
-
-    const snapshot = await approvedSnapshot(record);
+    const { snapshot, applied } = await approvedSnapshot(record);
+    const approvedPaths = new Set(applied.flatMap((p) => p.edits.map((e) => e.path)));
     const files = snapshot.files.filter((f) => approvedPaths.has(f.path)).map((f) => ({ path: f.path, content: f.content }));
+    // The patch files and log let the owner see and undo each fix with plain git.
+    files.push(...patchArtifacts(record.repo, applied));
     return { status: 200, body: { files } };
   }
 

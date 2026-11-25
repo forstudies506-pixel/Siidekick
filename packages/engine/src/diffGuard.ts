@@ -18,8 +18,11 @@ export type DiffLine = { type: "same" | "add" | "del"; text: string };
 
 /** LCS line diff in order, for rendering. renderDiff("a\nb", "a\nc") -> same a, del b, add c. */
 export function renderDiff(before: string, after: string): DiffLine[] {
-  const a = splitLines(before);
-  const b = splitLines(after);
+  return diffLines(splitLines(before), splitLines(after));
+}
+
+/** LCS diff over already-split lines. */
+export function diffLines(a: string[], b: string[]): DiffLine[] {
   const n = a.length;
   const m = b.length;
   const dp: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));

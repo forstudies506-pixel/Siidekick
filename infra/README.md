@@ -11,6 +11,33 @@ demo traffic; Bedrock is not used.
 - The CloudFront domain the dashboard will use (for CORS). If you don't have
   one yet, pass a placeholder and update the stack after the first deployment.
 
+## AWS Educate / Learner Lab
+
+Learner Lab accounts cannot create IAM roles. The template accepts an existing
+role through `ExistingRoleArn` instead of creating one. For most lab sessions,
+use the pre-made `LabRole` ARN:
+
+```text
+arn:aws:iam::<account-id>:role/LabRole
+```
+
+The deploy script uses this role automatically. If `ROLE_ARN` is not set, it
+gets the lab account ID and builds the LabRole ARN. Learner Lab session
+credentials expire. Start a new lab session and refresh the AWS CLI credentials
+before rerunning deployment.
+
+Run deployment from the repository root:
+
+```bash
+scripts/deploy.sh
+```
+
+On the first deployment, `CLOUDFRONT_DOMAIN` has no real value yet, because
+CloudFront is created in the same stack. The script deploys once with a
+placeholder CORS origin, reads the `SiteUrl` output, and deploys again with that
+domain so the API accepts requests from the site. Later runs find the domain
+already set and deploy once.
+
 ## Build
 
 From the repo root:

@@ -1,7 +1,8 @@
 import type { Check, Finding, Patch, RepoFile } from "../types.js";
+import { DOC_EXT } from "../util.js";
 import { findAppFile, insertAfterAppLine, isEsm, siblingPath } from "./security-headers.js";
 
-const SKIP = /(^|\/)node_modules\//;
+const skip = (path: string) => /(^|\/)node_modules\//.test(path) || DOC_EXT.test(path);
 /** Auth endpoints mentioned as string literals: '/login', "/signup", `/reset?next=…`. */
 const AUTH_ROUTE = /['"`]\/(login|signup|register|reset)\b/g;
 /** Any limiter in use: rateLimit(), express-rate-limit, a `limiter` binding. */
@@ -17,7 +18,7 @@ function scan(files: RepoFile[]): Scan {
   const routes = new Set<string>();
   let limiter = false;
   for (const f of files) {
-    if (SKIP.test(f.path)) continue;
+    if (skip(f.path)) continue;
     for (const m of f.content.matchAll(AUTH_ROUTE)) routes.add("/" + m[1]);
     if (!limiter && LIMITER.test(f.content)) limiter = true;
   }
