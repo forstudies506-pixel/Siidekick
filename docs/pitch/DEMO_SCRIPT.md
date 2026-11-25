@@ -40,7 +40,7 @@
 
 **Click:** Run the rescan and point to the score.
 
-**Say:** “The rescan shows the score change. It gives the owner a before-and-after check, not a claim that the site is 100% secure.”
+**Say:** “The rescan shows the score change. It gives the owner a before-and-after check; it reduces risk but does not eliminate it.”
 
 ## 2:40-2:55 - Download
 

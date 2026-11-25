@@ -1,5 +1,5 @@
 import type { DiffLine } from "../../../../packages/engine/src/diffGuard";
-import type { GuardResult, Patch, RepoFile, ScanReport } from "../../../../packages/engine/src/types";
+import type { FileEdit, GuardResult, Patch, RepoFile, ScanReport } from "../../../../packages/engine/src/types";
 import { createMockPatches, createMockScan, mockDownload } from "./mock";
 
 export type { DiffLine };
@@ -97,6 +97,44 @@ export function uploadScan(name: string, files: RepoFile[]): Promise<ScanRespons
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, files }) },
     name,
   );
+}
+
+// A GitHub scan only works on the real API: the mock has no copy of someone else's repo.
+export async function githubScan(url: string): Promise<ScanResponse> {
+  mockApproved.clear();
+  try {
+    const r = await request<Omit<ScanResponse, "mock">>(
+      "/api/scans/github",
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) },
+      validScan,
+    );
+    mockSession = false;
+    return { ...r, mock: false };
+  } catch (e) {
+    if (e instanceof ApiUnavailable) throw new Error("The scan server is offline, so GitHub repos cannot be fetched. Try the demo shop.");
+    throw e;
+  }
+}
+
+export interface CheckResponse {
+  guard: GuardResult;
+  diff: FileDiff[];
+}
+
+const validCheck = (v: unknown) => isObj(v) && isObj(v.guard) && Array.isArray(v.diff);
+
+/** Sends an edited copy of a patch to the server's diff guard. Nothing is stored or applied. */
+export async function checkPatch(id: string, patchId: string, edits: FileEdit[]): Promise<CheckResponse> {
+  try {
+    return await request<CheckResponse>(
+      `/api/scans/${encodeURIComponent(id)}/patches/${encodeURIComponent(patchId)}/check`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ edits }) },
+      validCheck,
+    );
+  } catch (e) {
+    if (e instanceof ApiUnavailable) throw new Error("The scan server is offline, so the guard cannot be asked.");
+    throw e;
+  }
 }
 
 export async function generatePatches(id: string, name: string): Promise<PatchResponse> {

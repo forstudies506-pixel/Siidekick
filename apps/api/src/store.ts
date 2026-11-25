@@ -1,12 +1,13 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { gzipSync, gunzipSync } from "node:zlib";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
-import type { RepoSnapshot, ScanReport, GuardResult, DiffLine } from "@siidekick/engine";
+import type { RepoSnapshot, ScanReport, GuardResult, DiffLine, Patch } from "@siidekick/engine";
 
 export interface PatchEntry {
   patchId: string;
-  patch: unknown;
+  patch: Patch;
   guard: GuardResult;
   diff: Array<{ path: string; lines: DiffLine[] }>;
   approved: boolean;
@@ -28,6 +29,11 @@ export interface Store {
   get(id: string): Promise<ScanRecord | null>;
   put(id: string, record: ScanRecord): Promise<void>;
 }
+
+// DynamoDB caps an item at 400 KB and a record carries the whole repo (up to 2 MB of text), so it is stored gzipped.
+const MAX_ITEM_BYTES = 380_000;
+
+export class RecordTooLargeError extends Error {}
 
 function ttlSeconds(): number {
   return Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
@@ -60,12 +66,12 @@ export function createDynamoStore(): Store {
   return {
     async get(id: string): Promise<ScanRecord | null> {
       const out = await doc.send(new GetCommand({ TableName: table, Key: { id } }));
-      return (out.Item as ScanRecord | undefined) ?? null;
+      return out.Item ? (JSON.parse(gunzipSync(out.Item.blob as Uint8Array).toString("utf8")) as ScanRecord) : null;
     },
     async put(id: string, record: ScanRecord): Promise<void> {
-      await doc.send(
-        new PutCommand({ TableName: table, Item: { ...record, id, expiresAt: ttlSeconds() } }),
-      );
+      const blob = gzipSync(JSON.stringify(record));
+      if (blob.length > MAX_ITEM_BYTES) throw new RecordTooLargeError("this repo is too large to store; try a smaller repo");
+      await doc.send(new PutCommand({ TableName: table, Item: { id, blob, expiresAt: ttlSeconds() } }));
     },
   };
 }

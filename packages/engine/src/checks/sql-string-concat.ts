@@ -1,5 +1,5 @@
 import type { Check, Finding } from "../types.js";
-import { CODE_EXT, lineAt } from "../util.js";
+import { CODE_EXT, lineAt, callArgs } from "../util.js";
 
 const SKIP = /(^|\/)node_modules\//;
 /** A statement shape, not a lone keyword, so URLs like '/api/update/' + id do not count. */
@@ -148,51 +148,6 @@ function findHits(files: { path: string; content: string }[]): Hit[] {
     }
   }
   return hits;
-}
-
-/** Same balanced-paren scan as auth-on-endpoints: the arguments of the call opened just before `from`. */
-function callArgs(content: string, from: number): string[] {
-  const args: string[] = [];
-  let buf = "";
-  let depth = 0;
-  let quote: string | null = null;
-  let esc = false;
-  for (let i = from; i < content.length; i++) {
-    const ch = content[i];
-    if (quote !== null) {
-      buf += ch;
-      if (esc) esc = false;
-      else if (ch === "\\") esc = true;
-      else if (ch === quote) quote = null;
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === "`") {
-      quote = ch;
-      buf += ch;
-      continue;
-    }
-    if (ch === "(" || ch === "[" || ch === "{") {
-      depth++;
-      buf += ch;
-      continue;
-    }
-    if (ch === ")" || ch === "]" || ch === "}") {
-      if (depth === 0 && ch === ")") {
-        args.push(buf);
-        return args;
-      }
-      if (depth > 0) depth--;
-      buf += ch;
-      continue;
-    }
-    if (ch === "," && depth === 0) {
-      args.push(buf);
-      buf = "";
-      continue;
-    }
-    buf += ch;
-  }
-  return args;
 }
 
 export const sqlStringConcat: Check = {

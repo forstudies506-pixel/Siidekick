@@ -245,6 +245,7 @@ main { max-width: 1280px; margin: 0 auto; }
 footer {
   max-width: 1280px;
   min-height: 110px;
+  padding: 16px 20px;
   margin: 0 auto;
   border-top: 2px solid var(--border);
   padding: 28px 32px;
@@ -285,6 +286,41 @@ footer strong { color: var(--ink); }
 }
 .start-panel h1 { margin: 0; font-size: 34px; letter-spacing: -0.03em; }
 .start-actions { display: flex; gap: 10px; }
+.start-inputs { display: flex; flex-direction: column; gap: 14px; flex: 0 1 520px; min-width: 0; }
+.repo-form { display: flex; flex-direction: column; gap: 6px; }
+.repo-form label { font-weight: 700; font-size: 14px; }
+.repo-form > div { display: flex; gap: 10px; }
+.repo-form input {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 2px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 14px;
+}
+.repo-form input::placeholder { color: var(--muted); }
+.repo-form input:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.repo-form small { color: var(--muted); font-size: 13px; }
+.notes { margin: 0 0 18px; padding-left: 20px; color: var(--muted); }
+.lang-toggle { display: inline-flex; border: 2px solid var(--border); border-radius: 4px; margin: 4px 0 18px; overflow: hidden; }
+.lang-toggle button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.lang-toggle button + button { border-left: 2px solid var(--border); }
+.lang-toggle button[aria-pressed="true"] { background: var(--amber); color: var(--bg); font-weight: 700; }
+.lang-toggle button:focus-visible { outline: 2px solid var(--amber); outline-offset: -4px; }
+.why-hi { border-left: 3px solid var(--amber); padding: 2px 0 2px 12px; margin-bottom: 12px; }
+.why-hi strong { color: var(--amber); font-size: 13px; }
+.why-hi p { margin: 4px 0 0; line-height: 1.7; }
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -298,6 +334,7 @@ footer strong { color: var(--ink); }
 }
 .state-box, .empty-state {
   min-height: 110px;
+  padding: 16px 20px;
   border: 2px dashed var(--muted);
   border-radius: 6px;
   display: grid;
@@ -305,7 +342,7 @@ footer strong { color: var(--ink); }
   color: var(--muted);
   margin-bottom: 24px;
 }
-.empty-state { display: flex; flex-direction: column; gap: 6px; }
+.empty-state { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 6px; text-align: center; }
 .empty-state strong { color: var(--ink); }
 .state-box.error { color: var(--red); border-color: var(--red); }
 .report-panel, .patches-panel { margin-bottom: 24px; padding: 24px; }
@@ -333,10 +370,22 @@ footer strong { color: var(--ink); }
 .report-groups { display: grid; gap: 24px; }
 .group h3 {
   margin: 0 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   color: var(--muted);
   font-family: "JetBrains Mono", monospace;
   font-size: 12px;
   text-transform: uppercase;
+}
+.group-letter {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--muted);
+  border-radius: 4px;
+  color: var(--ink);
 }
 .finding-row { border-top: 1px solid var(--surface-2); }
 .finding-row:last-child { border-bottom: 1px solid var(--surface-2); }
@@ -352,7 +401,7 @@ footer strong { color: var(--ink); }
 .passed { color: var(--green); font-family: "JetBrains Mono", monospace; font-size: 12px; }
 .failed { color: var(--red); font-family: "JetBrains Mono", monospace; font-size: 12px; }
 .finding-content { border-top: 1px dashed var(--surface-2); padding: 14px 0 18px; }
-.finding { display: grid; gap: 8px; padding: 10px 0; }
+.finding { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 10px 0; overflow-wrap: anywhere; }
 .finding code, .diff-block code { font-family: "JetBrains Mono", monospace; }
 .finding pre {
   margin: 0;
@@ -379,6 +428,7 @@ footer strong { color: var(--ink); }
 .patch-meta { display: flex; justify-content: space-between; gap: 20px; }
 .patch-meta h3 { margin: 4px 0 8px; }
 .patch-meta p:last-child { margin: 0; color: var(--muted); }
+.patch-chips { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .patch-class { color: var(--amber); font-family: "JetBrains Mono", monospace; text-transform: uppercase; font-size: 11px; }
 .guard-verdict {
   height: fit-content;
@@ -399,7 +449,16 @@ footer strong { color: var(--ink); }
 .diff-code { min-height: 34px; display: flex; align-items: center; padding: 5px 10px; overflow-wrap: anywhere; }
 .diff-code.add { color: var(--amber); background: color-mix(in oklab, var(--amber) 10%, transparent); }
 .diff-code.del { color: var(--red); background: color-mix(in oklab, var(--red) 9%, transparent); }
-.button.approve { margin-top: 14px; }
+.patch-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+.violations { margin: 0 0 12px; padding: 0; list-style: none; display: grid; gap: 8px; }
+.violations li { display: grid; gap: 4px; color: var(--red); font-size: 14px; }
+.violations code { color: var(--ink); overflow-wrap: anywhere; }
+.violation-line { border-left: 3px solid var(--red); padding: 4px 8px; background: color-mix(in oklab, var(--red) 9%, transparent); }
+.tamper-result { margin-top: 14px; border: 2px dashed var(--border); border-radius: 4px; padding: 14px; }
+.tamper-result.rejected { border-color: var(--red); }
+.tamper-result > p:first-child { margin-top: 0; }
+.tamper-result code { overflow-wrap: anywhere; }
+.tamper-result .guard-verdict { display: inline-block; margin: 0 0 12px; }
 .rescan-result {
   margin-top: 18px;
   border-top: 2px solid var(--border);
@@ -450,7 +509,9 @@ footer strong { color: var(--ink); }
   footer div span { max-width: 230px; }
   .dashboard { padding: 18px; }
   .start-panel { align-items: stretch; flex-direction: column; }
-  .start-actions { flex-direction: column; }
+  .start-actions, .repo-form > div { flex-direction: column; }
+  .start-inputs { flex-basis: auto; }
+  .patch-actions .button { width: 100%; }
   .report-panel, .patches-panel { padding: 18px; }
   .report-heading { align-items: flex-start; }
   .score-block { width: 112px; padding-left: 14px; }

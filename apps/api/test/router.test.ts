@@ -155,4 +155,57 @@ describe("router", () => {
     const server = (dl.body as { files: Array<{ path: string; content: string }> }).files.find((f) => f.path === "server.js");
     expect(server?.content).toBe(first.patch.edits.find((e) => e.path === "server.js")!.after);
   });
+  describe("tamper check", () => {
+    type Edit = { kind: "create"; path: string; content: string } | { kind: "modify"; path: string; before: string; after: string };
+    type Entry = { patch: { id: string; edits: Edit[] }; guard: { ok: boolean } };
+
+    async function patchedScan() {
+      const files = [{ path: "server.js", content: `const STRIPE_API_KEY = '${KEY}';\napp.listen(3000);\n` }];
+      const created = await router.handle({ method: "POST", path: "/api/scans", body: { name: "tiny", files } });
+      const id = (created.body as { id: string }).id;
+      const res = await router.handle({ method: "POST", path: `/api/scans/${id}/patches` });
+      const entries = (res.body as { patches: Entry[] }).patches;
+      const target = entries.find((e) => e.patch.edits.some((x) => x.kind === "modify" && x.path === "server.js"));
+      if (!target) throw new Error("expected a patch that modifies server.js");
+      return { id, target };
+    }
+
+    it("passes the stored edits unchanged", async () => {
+      const { id, target } = await patchedScan();
+      const res = await router.handle({
+        method: "POST",
+        path: `/api/scans/${id}/patches/${target.patch.id}/check`,
+        body: { edits: target.patch.edits },
+      });
+      expect(res.status).toBe(200);
+      expect((res.body as { guard: { ok: boolean } }).guard.ok).toBe(true);
+    });
+
+    it("blocks an edit that deletes an owner line and names the line", async () => {
+      const { id, target } = await patchedScan();
+      const edits = target.patch.edits.map((e) =>
+        e.kind === "modify" && e.path === "server.js"
+          ? { ...e, after: e.after.split("\n").filter((l) => !l.includes("app.listen")).join("\n") }
+          : e,
+      );
+      const res = await router.handle({ method: "POST", path: `/api/scans/${id}/patches/${target.patch.id}/check`, body: { edits } });
+      expect(res.status).toBe(200);
+      const guard = (res.body as { guard: { ok: boolean; violations: Array<{ reason: string; line?: string }> } }).guard;
+      expect(guard.ok).toBe(false);
+      expect(guard.violations.some((v) => v.line?.includes("app.listen(3000)"))).toBe(true);
+    });
+
+    it("rejects a bad body, an unsafe path and an unknown patch", async () => {
+      const { id, target } = await patchedScan();
+      const url = `/api/scans/${id}/patches/${target.patch.id}/check`;
+      expect((await router.handle({ method: "POST", path: url, body: { edits: [] } })).status).toBe(400);
+      const unsafe = [{ kind: "create", path: "../x.js", content: "" }];
+      expect((await router.handle({ method: "POST", path: url, body: { edits: unsafe } })).status).toBe(400);
+      const huge = Array.from({ length: 3000 }, (_, i) => `l${i}`).join("\n");
+      const tooBig = [{ kind: "modify", path: "server.js", before: huge, after: huge + "\nx" }];
+      expect((await router.handle({ method: "POST", path: url, body: { edits: tooBig } })).status).toBe(400);
+      const missing = `/api/scans/${id}/patches/no-such-patch/check`;
+      expect((await router.handle({ method: "POST", path: missing, body: { edits: target.patch.edits } })).status).toBe(404);
+    });
+  });
 });

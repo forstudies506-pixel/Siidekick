@@ -11,10 +11,12 @@ import {
   type GuardResult,
   type DiffLine,
   type Check,
+  type FileEdit,
 } from "@siidekick/engine";
 import * as z from "zod";
 import { readFile } from "node:fs/promises";
-import { createStore, type Store, type ScanRecord } from "./store.js";
+import { createStore, RecordTooLargeError, type Store, type ScanRecord } from "./store.js";
+import { fetchGithubRepo, GithubError } from "./github.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -25,6 +27,8 @@ const scanBodySchema = z.object({
   name: z.string().min(1),
   files: z.array(z.object({ path: z.string(), content: z.string() })).max(MAX_FILES),
 });
+
+const githubBodySchema = z.object({ url: z.string().max(300) });
 
 function validatePath(p: string): string | null {
   if (p.includes("\0")) return "path must not contain NUL";
@@ -47,6 +51,22 @@ function validateScanBody(body: unknown): { ok: true; repo: RepoSnapshot } | { o
   }
   if (total > MAX_BYTES) return { ok: false, error: "total content exceeds 2 MB" };
   return { ok: true, repo: { name, files } };
+}
+
+// The tamper check diffs whatever the client sends; cap each edit's line product so the O(n·m) diff stays cheap.
+const MAX_CHECK_EDITS = 20;
+const MAX_DIFF_CELLS = 4_000_000;
+
+const editSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("create"), path: z.string(), content: z.string() }),
+  z.object({ kind: z.literal("modify"), path: z.string(), before: z.string(), after: z.string() }),
+]);
+const checkBodySchema = z.object({ edits: z.array(editSchema).min(1).max(MAX_CHECK_EDITS) });
+
+function editDiff(edits: FileEdit[]): Array<{ path: string; lines: DiffLine[] }> {
+  return edits.map((e) =>
+    e.kind === "create" ? { path: e.path, lines: renderDiff("", e.content) } : { path: e.path, lines: renderDiff(e.before, e.after) },
+  );
 }
 
 type Handler = (params: Record<string, string>, body: unknown) => Promise<{ status: number; body: unknown }>;
@@ -74,32 +94,41 @@ function matchPath(pattern: string, pathname: string): Record<string, string> | 
   return params;
 }
 
-export function makeRouter(deps: { store: Store }) {
+export function makeRouter(deps: { store: Store; fetch?: typeof fetch }) {
   const store = deps.store;
 
   async function healthHandler(): Promise<{ status: number; body: unknown }> {
     return { status: 200, body: { ok: true, checks: registry.length } };
   }
 
-  async function createScanHandler(_params: Record<string, string>, body: unknown): Promise<{ status: number; body: unknown }> {
-    const v = validateScanBody(body);
-    if (!v.ok) return { status: 400, body: { error: v.error } };
-    const repo: RepoSnapshot = v.repo;
-    const report: ScanReport = await runScan({ repo, fetch }, registry);
+  async function saveScan(repo: RepoSnapshot): Promise<{ status: number; body: unknown }> {
+    const report: ScanReport = await runScan({ repo, fetch: deps.fetch ?? fetch }, registry);
     const id = crypto.randomUUID();
     const record: ScanRecord = { id, createdAt: new Date().toISOString(), repo, report };
     await store.put(id, record);
     return { status: 201, body: { id, report } };
   }
 
+  async function createScanHandler(_params: Record<string, string>, body: unknown): Promise<{ status: number; body: unknown }> {
+    const v = validateScanBody(body);
+    if (!v.ok) return { status: 400, body: { error: v.error } };
+    return saveScan(v.repo);
+  }
+
   async function demoScanHandler(): Promise<{ status: number; body: unknown }> {
     const demoUrl = new URL("./demoRepo.generated.json", import.meta.url);
-    const repo: RepoSnapshot = JSON.parse(await readFile(demoUrl, "utf8"));
-    const report: ScanReport = await runScan({ repo, fetch }, registry);
-    const id = crypto.randomUUID();
-    const record: ScanRecord = { id, createdAt: new Date().toISOString(), repo, report };
-    await store.put(id, record);
-    return { status: 201, body: { id, report } };
+    return saveScan(JSON.parse(await readFile(demoUrl, "utf8")));
+  }
+
+  async function githubScanHandler(_params: Record<string, string>, body: unknown): Promise<{ status: number; body: unknown }> {
+    const parsed = githubBodySchema.safeParse(body);
+    if (!parsed.success) return { status: 400, body: { error: "invalid request body" } };
+    try {
+      return await saveScan(await fetchGithubRepo(parsed.data.url, { fetch: deps.fetch }));
+    } catch (err) {
+      if (err instanceof GithubError) return { status: 400, body: { error: err.message } };
+      throw err;
+    }
   }
 
   async function getScanHandler(params: Record<string, string>): Promise<{ status: number; body: unknown }> {
@@ -141,9 +170,7 @@ export function makeRouter(deps: { store: Store }) {
       if (!patch) continue;
 
       const guard: GuardResult = guardPatch(current, patch);
-      const diff = patch.edits.map((e) =>
-        e.kind === "create" ? { path: e.path, lines: renderDiff("", e.content) } : { path: e.path, lines: renderDiff(e.before, e.after) },
-      );
+      const diff = editDiff(patch.edits);
 
       entries.push({ patchId: patch.id, patch, guard, diff, approved: false });
       if (guard.ok) {
@@ -215,6 +242,43 @@ export function makeRouter(deps: { store: Store }) {
     return { status: 200, body: { approved, score: rescan.score, passed: rescan.passed, total: rescan.total } };
   }
 
+  /**
+   * Runs the real diff guard on an edited copy of a stored patch, so the owner can watch it block a change
+   * that deletes their code. Only the edits come from the client; class and allowedRemovals stay the stored
+   * ones, so a tampered request cannot widen what the guard allows. Nothing is saved.
+   */
+  async function checkHandler(params: Record<string, string>, body: unknown): Promise<{ status: number; body: unknown }> {
+    if (!UUID_RE.test(params.id)) return { status: 400, body: { error: "invalid id" } };
+    const parsed = checkBodySchema.safeParse(body);
+    if (!parsed.success) return { status: 400, body: { error: "invalid request body" } };
+    const edits: FileEdit[] = parsed.data.edits;
+    let bytes = 0;
+    for (const e of edits) {
+      const err = validatePath(e.path);
+      if (err) return { status: 400, body: { error: err } };
+      const text = e.kind === "create" ? e.content : e.before + e.after;
+      bytes += Buffer.byteLength(text, "utf8");
+      if (e.kind === "modify" && e.before.split("\n").length * e.after.split("\n").length > MAX_DIFF_CELLS) {
+        return { status: 400, body: { error: "too many lines to diff" } };
+      }
+    }
+    if (bytes > MAX_BYTES) return { status: 400, body: { error: "total content exceeds 2 MB" } };
+
+    const record = await store.get(params.id);
+    if (!record) return { status: 404, body: { error: "not found" } };
+    const patches = record.patches ?? [];
+    const index = patches.findIndex((p) => p.patchId === params.patchId);
+    if (index === -1) return { status: 404, body: { error: "patch not found" } };
+
+    // Rebuild the snapshot this patch was generated against: every earlier patch the guard let through.
+    let base: RepoSnapshot = { name: record.repo.name, files: [...record.repo.files] };
+    for (const p of patches.slice(0, index)) {
+      if (p.guard.ok) base = applyPatch(base, p.patch);
+    }
+    const tampered: Patch = { ...patches[index].patch, edits };
+    return { status: 200, body: { guard: guardPatch(base, tampered), diff: editDiff(edits) } };
+  }
+
   async function downloadHandler(params: Record<string, string>): Promise<{ status: number; body: unknown }> {
     if (!UUID_RE.test(params.id)) return { status: 400, body: { error: "invalid id" } };
     const record = await store.get(params.id);
@@ -232,9 +296,11 @@ export function makeRouter(deps: { store: Store }) {
     { method: "GET", path: "api/health", handler: healthHandler },
     { method: "POST", path: "api/scans", handler: createScanHandler },
     { method: "POST", path: "api/scans/demo", handler: demoScanHandler },
+    { method: "POST", path: "api/scans/github", handler: githubScanHandler },
     { method: "GET", path: "api/scans/:id", handler: getScanHandler },
     { method: "POST", path: "api/scans/:id/patches", handler: patchesHandler },
     { method: "POST", path: "api/scans/:id/patches/:patchId/approve", handler: approveHandler },
+    { method: "POST", path: "api/scans/:id/patches/:patchId/check", handler: checkHandler },
     { method: "GET", path: "api/scans/:id/download", handler: downloadHandler },
   ];
 
@@ -263,6 +329,7 @@ export function makeRouter(deps: { store: Store }) {
     try {
       return await matched.route.handler(matched.params, req.body);
     } catch (err) {
+      if (err instanceof RecordTooLargeError) return { status: 413, body: { error: err.message } };
       console.error(err);
       return { status: 500, body: { error: "internal" } };
     }

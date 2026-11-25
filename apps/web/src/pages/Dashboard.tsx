@@ -1,16 +1,21 @@
-import { useEffect, useRef, useState, type ChangeEvent, type InputHTMLAttributes } from "react";
-import type { CheckGroup, CheckResult, RepoFile } from "../../../../packages/engine/src/types";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type InputHTMLAttributes } from "react";
+import type { CheckGroup, CheckResult, FileEdit, GuardViolation, RepoFile } from "../../../../packages/engine/src/types";
 import {
   approve,
+  checkPatch,
   createDemoScan,
   download,
   generatePatches,
+  githubScan,
   isMockSession,
   uploadScan,
+  type CheckResponse,
   type PatchEntry,
   type PatchResponse,
   type ScanResponse,
 } from "../api/client";
+import { checkHi, ui, type Lang } from "../i18n/hi";
+import { zipFiles } from "../zip";
 
 const groupLabels: Record<CheckGroup, string> = {
   "A-delivery": "Delivery",
@@ -27,7 +32,7 @@ const MAX_FILES = 500;
 const MAX_TOTAL_BYTES = 2 * 1024 * 1024;
 const MAX_FILE_BYTES = 512 * 1024;
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : /(ch|sh|s|x)$/.test(word) ? "es" : "s"}`;
 
 function isBinary(buffer: ArrayBuffer) {
   const bytes = new Uint8Array(buffer, 0, Math.min(buffer.byteLength, 8000));
@@ -120,17 +125,29 @@ function Score({ score }: { score: number }) {
   );
 }
 
-function FindingRow({ result }: { result: CheckResult }) {
+function FindingRow({ result, lang }: { result: CheckResult; lang: Lang }) {
+  const t = ui[lang];
+  const hi = lang === "hi" ? checkHi[result.checkId] : undefined;
   return (
     <details className={`finding-row ${result.passed ? "is-passed" : "is-failed"}`}>
       <summary>
-        <span className="finding-name">{result.title}</span>
+        <span className="finding-name" lang={hi ? "hi" : undefined}>
+          {hi?.title ?? result.title}
+        </span>
         <span className={`severity ${result.severity}`}>{result.severity}</span>
-        <span className={`verdict ${result.passed ? "pass" : "fail"}`}>{result.passed ? "pass" : "fail"}</span>
+        <span className={`verdict ${result.passed ? "pass" : "fail"}`} lang={lang}>
+          {result.passed ? t.pass : t.fail}
+        </span>
       </summary>
       <div className="finding-content">
+        {hi && (
+          <div className="why-hi" lang="hi">
+            <strong>{ui.hi.why}</strong>
+            <p>{hi.why}</p>
+          </div>
+        )}
         {result.findings.length === 0 ? (
-          <p>Nothing to fix here.</p>
+          <p lang={lang}>{t.nothing}</p>
         ) : (
           result.findings.map((finding, index) => (
             <div className="finding" key={`${finding.file ?? "repo"}-${finding.line ?? 0}-${index}`}>
@@ -144,10 +161,8 @@ function FindingRow({ result }: { result: CheckResult }) {
           ))
         )}
         {!result.passed && (
-          <p className="fix-mode">
-            {result.mode === "report"
-              ? "Reported only: this one needs the owner's own edit."
-              : "A guarded patch can be proposed for this."}
+          <p className="fix-mode" lang={lang}>
+            {result.mode === "report" ? t.reportOnly : t.patchable}
           </p>
         )}
         {result.error && <p className="error-text">{result.error}</p>}
@@ -159,18 +174,94 @@ function FindingRow({ result }: { result: CheckResult }) {
 const SIGN = { add: "+", del: "−", same: " " } as const;
 const SR_SIGN = { add: "added: ", del: "removed: ", same: "" } as const;
 
+const REASON_TEXT: Record<GuardViolation["reason"], string> = {
+  "overwrites-existing-file": "would overwrite a file you already have",
+  "modify-missing-file": "edits a file that is not in your repo",
+  "before-mismatch": "expects file content that does not match yours",
+  "removal-in-additive-patch": "deletes a line of your code",
+  "removed-line-not-allowed": "deletes a line this fix is not allowed to touch",
+  "patch-too-large": "is larger than the size limit",
+};
+
+function Violations({ items }: { items: GuardViolation[] }) {
+  return (
+    <ul className="violations">
+      {items.map((v, index) => (
+        <li key={`${v.reason}-${index}`}>
+          <span>
+            Blocked: {REASON_TEXT[v.reason]} in <code>{v.path}</code>
+          </span>
+          {v.line && <code className="violation-line">{v.line}</code>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+interface Tamper {
+  edits: FileEdit[];
+  path: string;
+  line: string;
+}
+
+// Builds the "tamper" demo: drop one line the owner already had from a modify edit's result.
+function tamperEdits(edits: FileEdit[]): Tamper | null {
+  for (const [i, edit] of edits.entries()) {
+    if (edit.kind !== "modify") continue;
+    const owned = new Set(edit.before.split("\n").map((l) => l.trim()).filter(Boolean));
+    const after = edit.after.split("\n");
+    const at = after.findIndex((l) => l.trim() !== "" && owned.has(l.trim()));
+    if (at === -1) continue;
+    const next = { ...edit, after: [...after.slice(0, at), ...after.slice(at + 1)].join("\n") };
+    return { edits: edits.map((e, j) => (j === i ? next : e)), path: edit.path, line: after[at].trim() };
+  }
+  return null;
+}
+
+function TamperResult({ tamper, result }: { tamper: Tamper; result: CheckResponse }) {
+  return (
+    <div className={`tamper-result${result.guard.ok ? "" : " rejected"}`}>
+      <p>
+        We deleted <code>{tamper.line}</code> from <code>{tamper.path}</code> in this patch and sent it to the server's
+        diff guard.
+      </p>
+      <p className={`guard-verdict ${result.guard.ok ? "ok" : "bad"}`}>
+        {result.guard.ok ? "guard passed: this should not happen" : "guard blocked the edited patch"}
+      </p>
+      {result.guard.violations.length > 0 && <Violations items={result.guard.violations} />}
+    </div>
+  );
+}
+
 function PatchCard({
   entry,
+  scanId,
+  tamperable,
   approved,
   pending,
   onApprove,
 }: {
   entry: PatchEntry;
+  scanId: string;
+  tamperable: boolean;
   approved: boolean;
   pending: boolean;
   onApprove: () => void;
 }) {
   const { patch, guard, diff } = entry;
+  const tamper = tamperable ? tamperEdits(patch.edits) : null;
+  const [tamperState, setTamperState] = useState<{ busy: boolean; result?: CheckResponse; error?: string }>({ busy: false });
+
+  async function handleTamper() {
+    if (!tamper) return;
+    setTamperState({ busy: true });
+    try {
+      setTamperState({ busy: false, result: await checkPatch(scanId, patch.id, tamper.edits) });
+    } catch (caught) {
+      setTamperState({ busy: false, error: caught instanceof Error ? caught.message : "The guard did not answer." });
+    }
+  }
+
   const label = approved ? "Approved" : pending ? "Approving…" : guard.ok ? "Approve patch" : "Blocked: cannot approve";
   return (
     <article className={`patch-card${guard.ok ? "" : " blocked"}`}>
@@ -180,7 +271,7 @@ function PatchCard({
           <p>{patch.reason}</p>
         </div>
         <div className="patch-chips">
-          <span className="chip">{patch.class}</span>
+          <span className="patch-class">{patch.class}</span>
           <span className={`guard-verdict ${guard.ok ? "ok" : "bad"}`}>{guard.ok ? "guard passed" : "guard blocked"}</span>
         </div>
       </div>
@@ -188,21 +279,7 @@ function PatchCard({
         <span>+{guard.added} added</span>
         <span>−{guard.removed} removed</span>
       </p>
-      {guard.violations.length > 0 && (
-        <ul className="violations">
-          {guard.violations.map((v, index) => (
-            <li key={`${v.reason}-${index}`}>
-              <code>{v.reason}</code> in <code>{v.path}</code>
-              {v.line && (
-                <>
-                  {" "}
-                  on <code>{v.line}</code>
-                </>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
+      {guard.violations.length > 0 && <Violations items={guard.violations} />}
       <div className="diff-block">
         {diff.map((file) => (
           <div key={file.path}>
@@ -222,9 +299,20 @@ function PatchCard({
           </div>
         ))}
       </div>
-      <button className="button approve" disabled={!guard.ok || approved || pending} onClick={onApprove}>
-        {label}
-      </button>
+      <div className="patch-actions">
+        <button className="button approve" disabled={!guard.ok || approved || pending} onClick={onApprove}>
+          {label}
+        </button>
+        {tamper && !tamperState.result && (
+          <button className="button secondary" onClick={handleTamper} disabled={tamperState.busy}>
+            {tamperState.busy ? "Asking the guard…" : "Try to tamper"}
+          </button>
+        )}
+      </div>
+      <div aria-live="polite">
+        {tamperState.result && tamper && <TamperResult tamper={tamper} result={tamperState.result} />}
+        {tamperState.error && <p className="error-text">{tamperState.error}</p>}
+      </div>
     </article>
   );
 }
@@ -241,6 +329,8 @@ export function Dashboard() {
   const [patchResult, setPatchResult] = useState<PatchResponse | null>(null);
   const [approved, setApproved] = useState<string[]>([]);
   const [approving, setApproving] = useState("");
+  const [lang, setLang] = useState<Lang>("en");
+  const [repoUrl, setRepoUrl] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const demoStarted = useRef(false);
@@ -296,6 +386,12 @@ export function Dashboard() {
     }
   }
 
+  function handleGithub(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const url = repoUrl.trim();
+    if (url) void runScan(() => githubScan(url));
+  }
+
   async function handleGenerate() {
     if (!scanId || !report) return;
     setBusy("patches");
@@ -327,11 +423,10 @@ export function Dashboard() {
   async function handleDownload() {
     try {
       const result = await download(scanId);
-      const blob = new Blob([JSON.stringify(result, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
+      const url = URL.createObjectURL(zipFiles(result.files));
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `siidekick-${report?.repo ?? "repo"}-approved.json`;
+      anchor.download = `siidekick-${report?.repo ?? "repo"}-approved.zip`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
@@ -348,6 +443,9 @@ export function Dashboard() {
     : [];
 
   const patches = patchResult?.patches ?? [];
+  // One tamper button is enough for the demo: the first approvable patch that edits an existing file.
+  const tamperId =
+    mock || patchResult?.mock ? undefined : patches.find((e) => e.guard.ok && tamperEdits(e.patch.edits))?.patch.id;
   const statusText =
     busy === "scan"
       ? "Scanning files."
@@ -377,11 +475,32 @@ export function Dashboard() {
           <div>
             <h1 id="scan-title">Review a small repo</h1>
             <p className="muted">
-              Use the demo shop or pick a project folder. Nothing in your code changes until you approve a patch.
+              Paste a public GitHub repo, use the demo shop, or pick a folder. Nothing in your code changes until you
+              approve a patch.
             </p>
           </div>
+          <div className="start-inputs">
+            <form className="repo-form" onSubmit={handleGithub}>
+              <label htmlFor="repo-url">Public GitHub repo</label>
+              <div>
+                <input
+                  id="repo-url"
+                  type="url"
+                  inputMode="url"
+                  required
+                  placeholder="https://github.com/owner/repo"
+                  value={repoUrl}
+                  onChange={(event) => setRepoUrl(event.target.value)}
+                  aria-describedby="repo-note"
+                />
+                <button className="button primary" type="submit" disabled={busy !== ""}>
+                  Scan repo
+                </button>
+              </div>
+              <small id="repo-note">Only scan repos you own or have permission to scan. No code is run.</small>
+            </form>
           <div className="start-actions">
-            <button className="button primary" onClick={() => runScan(createDemoScan)} disabled={busy !== ""}>
+            <button className="button secondary" onClick={() => runScan(createDemoScan)} disabled={busy !== ""}>
               Scan the demo shop
             </button>
             <button className="button secondary" onClick={() => inputRef.current?.click()} disabled={busy !== ""}>
@@ -398,6 +517,7 @@ export function Dashboard() {
               onChange={handleFiles}
             />
           </div>
+          </div>
         </section>
 
         <div role="alert">{error && <div className="state-box error">{error}</div>}</div>
@@ -412,7 +532,7 @@ export function Dashboard() {
         {busy !== "scan" && !report && (
           <div className="empty-state">
             <strong>No scan yet</strong>
-            <span>Twelve checks run on the files you give it. The demo shop takes about a second.</span>
+            <span>15 checks run on the files you give it. The demo shop takes about a second.</span>
           </div>
         )}
 
@@ -424,11 +544,25 @@ export function Dashboard() {
                   <h2 id="report-title" ref={headingRef} tabIndex={-1}>
                     {report.repo}
                   </h2>
-                  <p className="passed-total">
-                    <strong>{report.passed}</strong> of {report.total} checks pass
-                  </p>
+                  {lang === "hi" ? (
+                    <p className="passed-total" lang="hi">
+                      {report.total} {ui.hi.of} <strong>{report.passed}</strong> {ui.hi.checksPass}
+                    </p>
+                  ) : (
+                    <p className="passed-total">
+                      <strong>{report.passed}</strong> of {report.total} checks pass
+                    </p>
+                  )}
                 </div>
                 <Score score={report.score} />
+              </div>
+              <div className="lang-toggle" role="group" aria-label="Explanation language">
+                <button type="button" aria-pressed={lang === "en"} onClick={() => setLang("en")}>
+                  English
+                </button>
+                <button type="button" lang="hi" aria-pressed={lang === "hi"} onClick={() => setLang("hi")}>
+                  हिन्दी
+                </button>
               </div>
               <div className="report-groups">
                 {grouped.map(({ group, results }) => (
@@ -438,7 +572,7 @@ export function Dashboard() {
                       {groupLabels[group]}
                     </h3>
                     {results.map((result) => (
-                      <FindingRow key={result.checkId} result={result} />
+                      <FindingRow key={result.checkId} result={result} lang={lang} />
                     ))}
                   </section>
                 ))}
@@ -462,6 +596,8 @@ export function Dashboard() {
                 <PatchCard
                   key={entry.patch.id}
                   entry={entry}
+                  scanId={scanId}
+                  tamperable={entry.patch.id === tamperId}
                   approved={approved.includes(entry.patch.id)}
                   pending={approving === entry.patch.id}
                   onApprove={() => handleApprove(entry.patch.id)}

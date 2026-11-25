@@ -1,19 +1,23 @@
 import { ArrowRight, GitBranch } from "lucide-react";
 import { SiteHeader } from "../components/SiteHeader";
 
+// Mirrors packages/engine/src/registry.ts (group, title, severity). Keep the two in step.
 const checks = [
-  ["A", "Delivery", "Secrets", "high"],
-  ["A", "Delivery", "Dependency audit", "low"],
-  ["B", "Monitoring", "Health / readiness", "medium"],
-  ["C", "Security", "SQL concatenation", "high"],
-  ["C", "Security", "Security headers", "medium"],
+  ["A", "Delivery", "README", "low"],
+  ["A", "Delivery", "CI workflow", "medium"],
+  ["B", "Monitoring", "Health endpoint", "low"],
+  ["B", "Monitoring", "Error handler", "medium"],
+  ["B", "Monitoring", "Incident playbook", "low"],
+  ["C", "Security", "Secrets in the repo", "critical"],
+  ["C", "Security", "Auth on admin routes", "critical"],
+  ["C", "Security", "String-built SQL", "critical"],
+  ["C", "Security", "Security headers", "high"],
+  ["C", "Security", "Rate limit on login", "high"],
+  ["C", "Security", "Dependency audit (OSV)", "high"],
+  ["C", "Security", "Input validation", "high"],
   ["C", "Security", "Open CORS", "medium"],
-  ["C", "Security", "Auth on endpoints", "high"],
-  ["C", "Security", "Rate limiting", "medium"],
-  ["D", "Domain", "Data validation", "medium"],
+  ["C", "Security", "Firewall rules", "medium"],
   ["E", "States", "Heavy UI animation", "low"],
-  ["F", "AI", "AI boundary", "medium"],
-  ["G", "Enterprise", "Audit trail", "low"],
 ] as const;
 
 export function Landing() {
@@ -36,7 +40,7 @@ export function Landing() {
                 Scan the demo shop <ArrowRight size={18} aria-hidden="true" />
               </a>
               <a className="button secondary" href="/app">
-                Upload a repo
+                Paste a GitHub repo
               </a>
             </div>
           </div>
@@ -52,7 +56,7 @@ export function Landing() {
             </div>
             <div className="diff-line del">
               <span>−</span>
-              <code>- app.get('/admin/users', …)</code>
+              <code>app.get('/admin/users', …)</code>
             </div>
             <div className="guard-stamp">BLOCKED BY DIFF GUARD</div>
           </div>
@@ -77,7 +81,7 @@ export function Landing() {
             <p className="eyebrow">Coverage</p>
             <h2 id="checks-title">What it checks</h2>
           </div>
-          <div className="checks-table" role="table" aria-label="Twelve checks">
+          <div className="checks-table" role="table" aria-label="15 checks">
             {checks.map(([group, category, title, severity]) => (
               <div className="check-row" role="row" key={title}>
                 <span className="group-chip" role="cell">{group}</span>

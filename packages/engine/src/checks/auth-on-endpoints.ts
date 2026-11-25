@@ -1,5 +1,5 @@
 import type { Check, Finding, Patch, RepoFile } from "../types.js";
-import { CODE_EXT, lineAt } from "../util.js";
+import { CODE_EXT, lineAt, callArgs } from "../util.js";
 import { findAppFile, insertAfterAppLine, isEsm, siblingPath } from "./security-headers.js";
 
 const SKIP = /(^|\/)node_modules\//;
@@ -18,51 +18,6 @@ interface RouteHit {
   /** Char offset of the call in the file. */
   offset: number;
   path: string;
-}
-
-/** Split the arguments of the call whose '(' sits just before `from`; stops at its closing ')'. */
-function callArgs(content: string, from: number): string[] {
-  const args: string[] = [];
-  let buf = "";
-  let depth = 0;
-  let quote: string | null = null;
-  let esc = false;
-  for (let i = from; i < content.length; i++) {
-    const ch = content[i];
-    if (quote !== null) {
-      buf += ch;
-      if (esc) esc = false;
-      else if (ch === "\\") esc = true;
-      else if (ch === quote) quote = null;
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === "`") {
-      quote = ch;
-      buf += ch;
-      continue;
-    }
-    if (ch === "(" || ch === "[" || ch === "{") {
-      depth++;
-      buf += ch;
-      continue;
-    }
-    if (ch === ")" || ch === "]" || ch === "}") {
-      if (depth === 0 && ch === ")") {
-        args.push(buf);
-        return args;
-      }
-      if (depth > 0) depth--;
-      buf += ch;
-      continue;
-    }
-    if (ch === "," && depth === 0) {
-      args.push(buf);
-      buf = "";
-      continue;
-    }
-    buf += ch;
-  }
-  return args; // unterminated call: no usable handler list
 }
 
 /**

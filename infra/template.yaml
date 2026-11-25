@@ -31,6 +31,10 @@ Resources:
     Properties:
       Name: siidekick-api
       Description: Siidekick scanning API
+      # Scans are unauthenticated; cap request rate so nobody can run up the Lambda bill.
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 20
+        ThrottlingRateLimit: 5
       CorsConfiguration:
         AllowOrigins:
           - !Sub "https://${CloudFrontDomain}"
@@ -142,7 +146,7 @@ Resources:
             Resource: !Join ["", [!GetAtt WebBucket.Arn, "/*"]]
             Condition:
               StringEquals:
-                AWS:SourceArn: !GetAtt CloudFrontDistribution.Arn
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
 
   # ------------------------------------------------------------------
   # CloudFront: SPA site + /api/* -> HttpApi

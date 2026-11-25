@@ -23,6 +23,20 @@ export function renderDiff(before: string, after: string): DiffLine[] {
 
 /** LCS diff over already-split lines. */
 export function diffLines(a: string[], b: string[]): DiffLine[] {
+  // Patches add a few lines to a long file; trimming the shared ends keeps the O(n·m) table small.
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start++;
+  let endA = a.length;
+  let endB = b.length;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
+    endA--;
+    endB--;
+  }
+  const same = (text: string): DiffLine => ({ type: "same", text });
+  return [...a.slice(0, start).map(same), ...lcsDiff(a.slice(start, endA), b.slice(start, endB)), ...a.slice(endA).map(same)];
+}
+
+function lcsDiff(a: string[], b: string[]): DiffLine[] {
   const n = a.length;
   const m = b.length;
   const dp: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));

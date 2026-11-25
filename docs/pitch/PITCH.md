@@ -14,11 +14,11 @@ Siidekick scans a small web repository and lists security or reliability finding
 
 The patches can be downloaded with revert instructions. The local CLI can test an owner's patch and roll back if tests fail.
 
-## Why it is safe
+## Risk reduction
 
 Siidekick never deletes owner code. The diff guard blocks destructive or unrelated changes. The owner approves each fix. Uploaded code is not run on the server. Tests run only on the owner's local machine.
 
-This design reduces risk. It does not make a website 100% secure or “unhackable.”
+This design reduces risk; it does not eliminate it.
 
 ## AWS services
 

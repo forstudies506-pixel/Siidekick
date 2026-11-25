@@ -20,6 +20,13 @@ describe("lineDiff", () => {
     expect(d.removed).toEqual(["b"]);
     expect(d.added).toEqual(["c"]);
   });
+  it("diffs one inserted line in a 50k-line file without building the full table", () => {
+    const big = Array.from({ length: 50_000 }, (_, i) => `line ${i}`);
+    const after = [...big.slice(0, 25_000), "inserted", ...big.slice(25_000)];
+    const d = lineDiff(big.join("\n"), after.join("\n"));
+    expect(d.added).toEqual(["inserted"]);
+    expect(d.removed).toEqual([]);
+  });
 });
 
 describe("guardPatch", () => {
