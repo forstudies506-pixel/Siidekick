@@ -1,9 +1,9 @@
 # HANDOFF.md
 
-_Updated 2026-11-25._ Read `BRAIN.md`, `AGENTS.md`, then this.
+_Updated 2026-11-26._ Read `BRAIN.md`, `AGENTS.md`, then this.
 
 ## Done (tested)
-- Engine: 15 checks, diff guard, applier, CLI. `fix --out <dir> --verify` runs the owner's `npm test` after each patch and rolls back any patch that breaks it (local CLI only).
+- Engine: 19 checks, diff guard, applier, CLI. `fix --out <dir> --verify` runs the owner's `npm test` after each patch and rolls back any patch that breaks it (local CLI only).
 - Audit trail: every approved patch is saved as `.siidekick/<id>.patch` (`git apply -R` reverts it), plus `SIIDEKICK_LOG.md`. Secrets are masked in patch files.
 - Doc files (`.md`, `.txt` …) no longer count as passing a code check; `input-validation` passes only when routes call `validate()`.
 - API: scan, demo scan, patches, approve, download (includes the patch log). `scripts/deploy.sh` deploys twice so CORS gets the real CloudFront domain.
@@ -16,17 +16,22 @@ _Updated 2026-11-25._ Read `BRAIN.md`, `AGENTS.md`, then this.
 
 - Phase 4: **AI-era checks** (group F, `checks/ai.ts`): `hallucinated-package` (deps that do not exist on npm/PyPI, slopsquat risk, report-only), `client-exposed-secrets` (server keys in browser bundles), `baas-open-rules` (open Firebase/RTDB rules, Supabase tables without RLS; fixes Firebase to require sign-in), `jwt-misuse` (decode without verify, alg none, literal or fallback secret, expiry off; fixes expiry). Demo flaws 9–12 added. Verified: 137 engine + 26 API tests; demo CLI 2 → 59, 14 patches, all guards OK.
 
+- Phase 5a/5b: checks that do not fit a repo (no server, serverless only, Python) are skipped with a reason and left out of the score; `serverShape()` in `util.ts` reads server kind from source. Real scans only (no canned results); GitHub repos past the caps are scanned in part with a warning instead of rejected.
+- Phase 6: **Guided dashboard, no hardcoding.** `/app` is a four-step flow (Connect → Findings → Fixes → Verify & ship) with the scan id and step in the URL, so reload and back keep state (`GET /api/scans/:id` returns the stored scan; approve returns a summary with the measured rescan score and the still-failing checks). Works on any public GitHub repo. Checked in a browser on this repo (20 → 42 after 6 approvals, rescan-measured), the demo shop (`?demo=1`, score 2, 14 guard-passed patches), at 375 px, and the zip download. Verified: 145 engine + 28 API + 4 demo tests.
+
 ## Not done
 - AWS: template prepared (`sam validate --lint` passes), not yet deployed.
 - Hindi copy not checked by a native speaker.
 - Replay on Lambda is unverified: Node 22 runtime, writing the two shop copies to `/tmp`, spawning `node` children.
 
-## Open decision
-- GitHub scans hard-reject repos over 500 files or 2 MB with "repo too large". Fine for the target users' small sites; a bigger repo could instead scan only the first N code files with a warning. Left strict for now.
+## Known gaps
+- `auth-on-endpoints` flags route strings inside test fixtures (seen on this repo: `packages/engine/test/auth-on-endpoints.test.ts`); it should skip `TEST_FILE` paths. Owner: kilo.
+- `security-headers` evidence is Node-centric, so Python and Vercel repos get weaker evidence.
+- Stale local API on port 8787 (PID 30531) during dev; dev used 8790.
 
 ## Next
 1. `scripts/deploy.sh` once AWS access is confirmed (#2).
-2. P1 items in `docs/PLAN.md`: GitHub Action, badge, landing polish.
+2. Landing page redesign (real numbers from a live scan, no hardcoded stats), then P1 items in `docs/PLAN.md`: GitHub Action, badge.
 3. Record the demo video (`docs/pitch/DEMO_SCRIPT.md`) and submit by Nov 29 (`docs/pitch/SUBMISSION.md`).
 
 ## Blocked on humans (#2)

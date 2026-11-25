@@ -65,7 +65,7 @@ describe("verifyPatches", () => {
     } finally {
       rmSync(out, { recursive: true, force: true });
     }
-  });
+  }, 30_000); // spawns four real `npm test` runs; slow when every test file runs in parallel
 
   it("keeps every patch but marks them unverified when tests already fail", async () => {
     const out = tmp();

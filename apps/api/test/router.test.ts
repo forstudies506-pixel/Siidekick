@@ -116,6 +116,10 @@ describe("router", () => {
       path: `/api/scans/${id}/patches/${patchId}/approve`,
     });
     expect((ap.body as { approved: string[] }).approved).toContain(patchId);
+    expect((ap.body as { failing: string[] }).failing).not.toContain("secrets-in-repo");
+
+    const stored = await router.handle({ method: "GET", path: `/api/scans/${id}` });
+    expect(stored.body).toMatchObject({ demo: false, approvedSummary: { failing: expect.any(Array) } });
 
     dl = await router.handle({ method: "GET", path: `/api/scans/${id}/download` });
     const paths = (dl.body as { files: Array<{ path: string }> }).files.map((f) => f.path);

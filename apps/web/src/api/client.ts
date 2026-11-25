@@ -47,6 +47,16 @@ export function isMockSession() {
   return mockSession;
 }
 
+/** Turns a dead server into one readable message instead of "network" or a status code. */
+async function live<T>(pending: Promise<T>): Promise<T> {
+  try {
+    return await pending;
+  } catch (e) {
+    if (e instanceof ApiUnavailable) throw new Error(OFFLINE);
+    throw e;
+  }
+}
+
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 
 async function request<T>(path: string, init: RequestInit, valid: (v: unknown) => boolean): Promise<T> {
@@ -140,21 +150,57 @@ export async function checkPatch(id: string, patchId: string, edits: FileEdit[])
 
 export async function generatePatches(id: string, name: string): Promise<PatchResponse> {
   if (mockSession) return createMockPatches(name);
-  const r = await request<Omit<PatchResponse, "mock">>(`/api/scans/${encodeURIComponent(id)}/patches`, { method: "POST" }, validPatches);
+  const r = await live(request<Omit<PatchResponse, "mock">>(`/api/scans/${encodeURIComponent(id)}/patches`, { method: "POST" }, validPatches));
   return { ...r, mock: false };
 }
 
-export async function approve(id: string, patchId: string): Promise<string[]> {
+/** Rescan of the repo with only the approved fixes applied. */
+export interface ApprovedSummary {
+  score: number;
+  passed: number;
+  total: number;
+  /** Check ids still failing once the approved fixes are in. */
+  failing: string[];
+}
+
+export interface ApproveResponse extends Partial<ApprovedSummary> {
+  approved: string[];
+}
+
+export async function approve(id: string, patchId: string): Promise<ApproveResponse> {
   if (mockSession) {
     mockApproved.add(patchId);
-    return [...mockApproved];
+    return { approved: [...mockApproved] };
   }
-  const r = await request<{ approved: string[] }>(
-    `/api/scans/${encodeURIComponent(id)}/patches/${encodeURIComponent(patchId)}/approve`,
-    { method: "POST" },
-    validApprove,
+  return live(
+    request<ApproveResponse>(
+      `/api/scans/${encodeURIComponent(id)}/patches/${encodeURIComponent(patchId)}/approve`,
+      { method: "POST" },
+      validApprove,
+    ),
   );
-  return r.approved;
+}
+
+/** A scan as the server stored it, for reopening a link or a recent scan. */
+export interface StoredScan {
+  id: string;
+  report: ScanReport;
+  patches?: (PatchEntry & { patchId: string; approved: boolean })[];
+  after?: ScanReport;
+  omitted?: number;
+  demo?: boolean;
+  approvedSummary?: ApprovedSummary;
+}
+
+export async function getScan(id: string): Promise<StoredScan> {
+  try {
+    const r = await request<StoredScan>(`/api/scans/${encodeURIComponent(id)}`, { method: "GET" }, validScan);
+    mockSession = false;
+    return r;
+  } catch (e) {
+    if (e instanceof ApiUnavailable) throw new Error(OFFLINE);
+    throw e;
+  }
 }
 
 // Mirrors the report in packages/engine/src/replay.ts. Declared here because that module imports node-only APIs.
@@ -207,5 +253,5 @@ export async function proveFix(id: string): Promise<ReplayReport> {
 
 export async function download(id: string): Promise<DownloadResponse> {
   if (mockSession) return mockDownload([...mockApproved]);
-  return request<DownloadResponse>(`/api/scans/${encodeURIComponent(id)}/download`, { method: "GET" }, validDownload);
+  return live(request<DownloadResponse>(`/api/scans/${encodeURIComponent(id)}/download`, { method: "GET" }, validDownload));
 }

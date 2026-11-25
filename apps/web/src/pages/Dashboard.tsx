@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type InputHTMLAttributes } from "react";
-import type { CheckGroup, CheckResult, FileEdit, GuardViolation, RepoFile } from "../../../../packages/engine/src/types";
+import type { CheckGroup, CheckResult, FileEdit, GuardViolation, RepoFile, Severity } from "../../../../packages/engine/src/types";
 import {
   approve,
   checkPatch,
   createDemoScan,
   download,
   generatePatches,
+  getScan,
   githubScan,
   isMockSession,
   proveFix,
   uploadScan,
   type AttackPath,
+  type ApprovedSummary,
   type AttackReceipt,
   type CheckResponse,
   type ReplayReport,
@@ -130,45 +132,57 @@ function Score({ score }: { score: number }) {
   );
 }
 
-function FindingRow({ result, lang }: { result: CheckResult; lang: Lang }) {
+function FindingRow({ result, lang, hasFix }: { result: CheckResult; lang: Lang; hasFix: boolean }) {
   const t = ui[lang];
   const hi = lang === "hi" ? checkHi[result.checkId] : undefined;
+  const state = result.skipped ? "na" : result.passed ? "passed" : "failed";
   return (
-    <details className={`finding-row ${result.passed ? "is-passed" : "is-failed"}`}>
+    <details className={`finding-row is-${state}`}>
       <summary>
         <span className="finding-name" lang={hi ? "hi" : undefined}>
           {hi?.title ?? result.title}
         </span>
         <span className={`severity ${result.severity}`}>{result.severity}</span>
-        <span className={`verdict ${result.passed ? "pass" : "fail"}`} lang={lang}>
-          {result.passed ? t.pass : t.fail}
+        {state === "failed" ? (
+          <span className={`fix-badge ${hasFix ? "auto" : "manual"}`}>{hasFix ? "auto-fix" : "manual"}</span>
+        ) : (
+          <span aria-hidden="true" />
+        )}
+        <span className={`verdict ${state === "na" ? "na" : result.passed ? "pass" : "fail"}`} lang={lang}>
+          {state === "na" ? "N/A" : result.passed ? t.pass : t.fail}
         </span>
       </summary>
       <div className="finding-content">
-        {hi && (
-          <div className="why-hi" lang="hi">
-            <strong>{ui.hi.why}</strong>
-            <p>{hi.why}</p>
-          </div>
-        )}
-        {result.findings.length === 0 ? (
-          <p lang={lang}>{t.nothing}</p>
+        {result.skipped ? (
+          <p>Not applicable: {result.skipped}</p>
         ) : (
-          result.findings.map((finding, index) => (
-            <div className="finding" key={`${finding.file ?? "repo"}-${finding.line ?? 0}-${index}`}>
-              <code className="finding-loc">
-                {finding.file || "repository"}
-                {finding.line ? `:${finding.line}` : ""}
-              </code>
-              {finding.evidence && <pre>{finding.evidence}</pre>}
-              <p>{finding.explanation}</p>
-            </div>
-          ))
-        )}
-        {!result.passed && (
-          <p className="fix-mode" lang={lang}>
-            {result.mode === "report" ? t.reportOnly : t.patchable}
-          </p>
+          <>
+            {hi && (
+              <div className="why-hi" lang="hi">
+                <strong>{ui.hi.why}</strong>
+                <p>{hi.why}</p>
+              </div>
+            )}
+            {result.findings.length === 0 ? (
+              <p lang={lang}>{t.nothing}</p>
+            ) : (
+              result.findings.map((finding, index) => (
+                <div className="finding" key={`${finding.file ?? "repo"}-${finding.line ?? 0}-${index}`}>
+                  <code className="finding-loc">
+                    {finding.file || "repository"}
+                    {finding.line ? `:${finding.line}` : ""}
+                  </code>
+                  {finding.evidence && <pre>{finding.evidence}</pre>}
+                  <p>{finding.explanation}</p>
+                </div>
+              ))
+            )}
+            {!result.passed && (
+              <p className="fix-mode" lang={lang}>
+                {result.mode === "report" ? t.reportOnly : t.patchable}
+              </p>
+            )}
+          </>
         )}
         {result.error && <p className="error-text">{result.error}</p>}
       </div>
@@ -509,326 +523,947 @@ function ProofPanel({ scanId, approved, mock, results }: { scanId: string; appro
   );
 }
 
-type Busy = "" | "scan" | "patches";
+
+type Busy = "" | "scan" | "patches" | "restore" | "approve-all";
+type Step = "connect" | "findings" | "fixes" | "verify";
+type Filter = "failing" | "passed" | "na" | "all";
+type View = "severity" | "category";
+type Source = "github" | "upload" | "demo";
+type Report = ScanResponse["report"];
+
+const STEPS: { id: Step; label: string }[] = [
+  { id: "connect", label: "Connect" },
+  { id: "findings", label: "Findings" },
+  { id: "fixes", label: "Fixes" },
+  { id: "verify", label: "Verify & ship" },
+];
+const SEVERITIES: Severity[] = ["critical", "high", "medium", "low", "info"];
+const SEV_ORDER: Record<Severity, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+const SOURCE_LABEL: Record<Source, string> = { github: "GitHub", upload: "folder", demo: "demo" };
+
+interface Recent {
+  id: string;
+  repo: string;
+  score: number;
+  at: string;
+  source: Source;
+  url?: string;
+}
+const RECENT_KEY = "siidekick.recent";
+const MAX_RECENT = 6;
+
+function loadRecent(): Recent[] {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter(
+        (r): r is Recent =>
+          typeof r === "object" &&
+          r !== null &&
+          typeof r.id === "string" &&
+          typeof r.repo === "string" &&
+          typeof r.score === "number" &&
+          typeof r.at === "string" &&
+          (r.source === "github" || r.source === "upload" || r.source === "demo") &&
+          (r.url === undefined || typeof r.url === "string"),
+      )
+      .slice(0, MAX_RECENT);
+  } catch {
+    return [];
+  }
+}
+
+function saveRecent(list: Recent[]) {
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list));
+  } catch {
+    // Private mode or a full store can throw. Recents are a convenience, so the scan carries on without them.
+  }
+}
+
+const isStep = (s: string | null): s is Step => STEPS.some((x) => x.id === s);
+
+function readUrl() {
+  const q = new URLSearchParams(window.location.search);
+  const step = q.get("step");
+  return { scan: q.get("scan") ?? "", step: isStep(step) ? step : null, demo: q.get("demo") === "1" };
+}
+
+/** Keeps a server message, but never shows a bare transport word or status code. */
+function errorText(e: unknown, fallback: string) {
+  const msg = e instanceof Error ? e.message.trim() : "";
+  return !msg || /^(network|not json|\d{3})$/i.test(msg) ? fallback : msg;
+}
+
+function ago(iso: string) {
+  const s = (Date.now() - Date.parse(iso)) / 1000;
+  if (!Number.isFinite(s) || s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+const isFailing = (r: CheckResult) => !r.passed && !r.skipped;
+const bySeverity = (a: CheckResult, b: CheckResult) => SEV_ORDER[a.severity] - SEV_ORDER[b.severity] || a.title.localeCompare(b.title);
+const rank = (r: CheckResult) => (isFailing(r) ? 0 : r.skipped ? 2 : 1);
 
 export function Dashboard() {
-  const [report, setReport] = useState<ScanResponse["report"] | null>(null);
+  const [step, setStep] = useState<Step>("connect");
+  const [report, setReport] = useState<Report | null>(null);
   const [scanId, setScanId] = useState("");
-  const [mock, setMock] = useState(isMockSession());
-  const [busy, setBusy] = useState<Busy>("");
-  const [error, setError] = useState("");
+  const [mock, setMock] = useState(false);
+  const [demo, setDemo] = useState(false);
+  const [omitted, setOmitted] = useState<number | undefined>(undefined);
   const [notes, setNotes] = useState<string[]>([]);
   const [patchResult, setPatchResult] = useState<PatchResponse | null>(null);
   const [approved, setApproved] = useState<string[]>([]);
-  const [approving, setApproving] = useState("");
+  const [summary, setSummary] = useState<ApprovedSummary | null>(null);
+  const [pendingId, setPendingId] = useState("");
+  const [busy, setBusy] = useState<Busy>("");
+  const [error, setError] = useState("");
+  const [gone, setGone] = useState<{ repo: string; url?: string } | null>(null);
+  const [filter, setFilter] = useState<Filter>("failing");
+  const [view, setView] = useState<View>("severity");
   const [lang, setLang] = useState<Lang>("en");
+  const [selectedPatch, setSelectedPatch] = useState("");
+  const [recent, setRecent] = useState<Recent[]>(loadRecent);
   const [repoUrl, setRepoUrl] = useState("");
-  const [demo, setDemo] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const headingRef = useRef<HTMLHeadingElement>(null);
-  const demoStarted = useRef(false);
+  const [downloading, setDownloading] = useState(false);
+  const folderInput = useRef<HTMLInputElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const genTried = useRef(false);
+  const started = useRef(false);
+  const shownStep = useRef<Step>(step);
+
+  function remember(entry: Recent) {
+    setRecent((list) => {
+      const next = [entry, ...list.filter((r) => r.id !== entry.id)].slice(0, MAX_RECENT);
+      saveRecent(next);
+      return next;
+    });
+  }
+
+  function forget(id: string) {
+    setRecent((list) => {
+      const next = list.filter((r) => r.id !== id);
+      saveRecent(next);
+      return next;
+    });
+  }
+
+  /** Moves to a step and mirrors it in the address bar, so reload and back keep the place. */
+  function go(next: Step, id = scanId, isMock = mock, replace = false) {
+    setStep(next);
+    const q = new URLSearchParams();
+    if (id && !isMock) q.set("scan", id);
+    if (next !== "connect") q.set("step", next);
+    const qs = q.toString();
+    const url = window.location.pathname + (qs ? `?${qs}` : "");
+    if (url === window.location.pathname + window.location.search) return;
+    if (replace) window.history.replaceState(null, "", url);
+    else window.history.pushState(null, "", url);
+  }
+
+  const canOpen = (s: Step) => s === "connect" || (s === "verify" ? !!patchResult : !!report);
+
+  async function runScan(start: () => Promise<ScanResponse>, readNotes: string[], source: Source, url?: string) {
+    setBusy("scan");
+    setError("");
+    setGone(null);
+    setNotes(readNotes);
+    try {
+      const res = await start();
+      setReport(res.report);
+      setScanId(res.id);
+      setMock(res.mock);
+      setOmitted(res.omitted);
+      setDemo(source === "demo" && !res.mock);
+      setPatchResult(null);
+      setApproved([]);
+      setSummary(null);
+      setSelectedPatch("");
+      setFilter(res.report.results.some(isFailing) ? "failing" : "all");
+      genTried.current = false;
+      if (!res.mock) remember({ id: res.id, repo: res.report.repo, score: res.report.score, at: new Date().toISOString(), source, url });
+      go("findings", res.id, res.mock, readUrl().demo);
+    } catch (e) {
+      setError(errorText(e, "The scan failed. Try again."));
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function restore(id: string, target: Step) {
+    setBusy("restore");
+    setError("");
+    setGone(null);
+    try {
+      const stored = await getScan(id);
+      const pr: PatchResponse | null = stored.patches
+        ? {
+            patches: stored.patches.map(({ patch, guard, diff }) => ({ patch, guard, diff })),
+            scoreBefore: stored.report.score,
+            scoreAfter: stored.after?.score ?? stored.report.score,
+            status: stored.after && stored.after.passed === stored.after.total ? "rescan-clean" : "partial",
+            mock: false,
+          }
+        : null;
+      setReport(stored.report);
+      setScanId(id);
+      setMock(false);
+      setOmitted(stored.omitted);
+      setNotes([]);
+      setDemo(!!stored.demo);
+      setPatchResult(pr);
+      setApproved(stored.patches?.filter((p) => p.approved).map((p) => p.patchId) ?? []);
+      setSummary(stored.approvedSummary ?? null);
+      setSelectedPatch("");
+      setFilter(stored.report.results.some(isFailing) ? "failing" : "all");
+      genTried.current = !!pr;
+      go(target === "verify" && !pr ? "fixes" : target, id, false, true);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "";
+      if (/not found/i.test(msg)) {
+        const entry = recent.find((r) => r.id === id);
+        setGone({ repo: entry?.repo ?? "That scan", url: entry?.url });
+        forget(id);
+        setReport(null);
+        setScanId("");
+        setPatchResult(null);
+        go("connect", "", false, true);
+      } else {
+        setError(errorText(e, "Could not load that scan."));
+        setStep("connect");
+      }
+    } finally {
+      setBusy("");
+    }
+  }
 
   useEffect(() => {
-    // StrictMode runs effects twice in dev; one demo scan is enough.
-    if (demoStarted.current) return;
-    demoStarted.current = true;
-    if (new URLSearchParams(window.location.search).get("demo") === "1") void runScan(createDemoScan, [], true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (started.current) return;
+    started.current = true;
+    const { scan, step: s, demo: wantDemo } = readUrl();
+    if (wantDemo) void runScan(createDemoScan, [], "demo");
+    else if (scan) void restore(scan, s && s !== "connect" ? s : "findings");
+    // Runs once on load: the address bar decides where the visit starts.
   }, []);
 
   useEffect(() => {
-    if (report) headingRef.current?.focus();
-  }, [report]);
-
-  async function runScan(start: () => Promise<ScanResponse>, nextNotes: string[] = [], isDemo = false) {
-    setBusy("scan");
-    setDemo(isDemo);
-    setError("");
-    setNotes(nextNotes);
-    setReport(null);
-    setScanId("");
-    setPatchResult(null);
-    setApproved([]);
-    try {
-      const result = await start();
-      setReport(result.report);
-      setScanId(result.id);
-      setMock(result.mock || isMockSession());
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "The scan did not finish.");
-    } finally {
-      setBusy("");
-    }
-  }
-
-  async function handleFiles(event: ChangeEvent<HTMLInputElement>) {
-    const input = event.target;
-    const list = input.files;
-    if (!list?.length) return;
-    try {
-      const folder = await readFolder(list);
-      if (folder.files.length === 0) {
-        setNotes(folder.notes);
-        setError("No readable text files in that folder.");
+    const onPop = () => {
+      const { scan, step: s } = readUrl();
+      const target = s ?? "connect";
+      if (scan && scan !== scanId) {
+        void restore(scan, target);
         return;
       }
-      await runScan(() => uploadScan(folder.name, folder.files), folder.notes);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not read this folder.");
+      setStep(canOpen(target) ? target : report ? "findings" : "connect");
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  });
+
+  useEffect(() => {
+    if (shownStep.current === step) return;
+    shownStep.current = step;
+    heading.current?.focus();
+  }, [step]);
+
+  async function handleFiles(e: ChangeEvent<HTMLInputElement>) {
+    const input = e.currentTarget;
+    const list = input.files;
+    if (!list?.length) return;
+    let read: FolderRead;
+    try {
+      read = await readFolder(list);
+    } catch (err) {
+      setError(errorText(err, "Could not read that folder."));
+      return;
     } finally {
       input.value = "";
     }
+    if (!read.files.length) {
+      setError("No readable text files in that folder.");
+      return;
+    }
+    await runScan(() => uploadScan(read.name, read.files), read.notes, "upload");
   }
 
-  function handleGithub(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  function handleGithub(e: FormEvent) {
+    e.preventDefault();
     const url = repoUrl.trim();
-    if (url) void runScan(() => githubScan(url));
+    if (!url) return;
+    void runScan(() => githubScan(url), [], "github", url);
   }
 
   async function handleGenerate() {
-    if (!scanId || !report) return;
+    if (!report || !scanId) return;
+    genTried.current = true;
     setBusy("patches");
     setError("");
+    setApproved([]);
+    setSummary(null);
+    setSelectedPatch("");
     try {
-      const result = await generatePatches(scanId, report.repo);
-      setPatchResult(result);
-      setApproved([]);
-      setMock((current) => current || result.mock);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not generate patches.");
+      setPatchResult(await generatePatches(scanId, report.repo));
+    } catch (e) {
+      setError(errorText(e, "Could not draft patches. Try again."));
     } finally {
       setBusy("");
     }
   }
 
-  async function handleApprove(patchId: string) {
-    if (approving) return;
-    setApproving(patchId);
+  useEffect(() => {
+    if (step === "fixes" && report && !patchResult && !busy && !genTried.current) void handleGenerate();
+  });
+
+  async function approveOne(patchId: string): Promise<boolean> {
+    setPendingId(patchId);
     setError("");
     try {
-      setApproved(await approve(scanId, patchId));
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not approve this patch.");
+      const res = await approve(scanId, patchId);
+      setApproved(res.approved);
+      if (res.score !== undefined && res.passed !== undefined && res.total !== undefined && res.failing) {
+        setSummary({ score: res.score, passed: res.passed, total: res.total, failing: res.failing });
+      }
+      return true;
+    } catch (e) {
+      setError(errorText(e, "Could not approve that patch. Try again."));
+      return false;
     } finally {
-      setApproving("");
+      setPendingId("");
+    }
+  }
+
+  async function handleApproveAll() {
+    if (!patchResult) return;
+    setBusy("approve-all");
+    try {
+      // One at a time: each approve rewrites the scan record on the server.
+      for (const { patch, guard } of patchResult.patches) {
+        if (!guard.ok || approved.includes(patch.id)) continue;
+        if (!(await approveOne(patch.id))) break;
+      }
+    } finally {
+      setBusy("");
     }
   }
 
   async function handleDownload() {
+    if (!report) return;
+    setDownloading(true);
+    setError("");
     try {
-      const result = await download(scanId);
-      const url = URL.createObjectURL(zipFiles(result.files));
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `siidekick-${report?.repo ?? "repo"}-approved.zip`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not prepare the download.");
+      const res = await download(scanId);
+      const href = URL.createObjectURL(zipFiles(res.files));
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = `siidekick-${report.repo.replace(/[^\w.-]+/g, "-")}-approved.zip`;
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(href), 1000);
+    } catch (e) {
+      setError(errorText(e, "Could not build the download. Try again."));
+    } finally {
+      setDownloading(false);
     }
   }
 
-  const grouped = report
-    ? (Object.keys(groupLabels) as CheckGroup[])
-        .map((group) => ({ group, results: report.results.filter((r) => r.group === group) }))
-        .filter((entry) => entry.results.length > 0)
-    : [];
+  function newScan() {
+    setError("");
+    setGone(null);
+    go("connect", "", false);
+  }
 
+  const results = report?.results ?? [];
+  const failing = results.filter(isFailing);
+  const passedList = results.filter((r) => r.passed && !r.skipped);
+  const naList = results.filter((r) => r.skipped);
   const patches = patchResult?.patches ?? [];
-  // One tamper button is enough for the demo: the first approvable patch that edits an existing file.
-  const tamperId =
-    mock || patchResult?.mock ? undefined : patches.find((e) => e.guard.ok && tamperEdits(e.patch.edits))?.patch.id;
+  const patchedChecks = new Set(patches.map((e) => e.patch.checkId));
+  const hasFix = (r: CheckResult) => (patchResult ? patchedChecks.has(r.checkId) : r.mode !== "report");
+  const byFilter: Record<Filter, CheckResult[]> = { failing, passed: passedList, na: naList, all: results };
+  const shown = [...byFilter[filter]].sort((a, b) => rank(a) - rank(b) || bySeverity(a, b));
+  const groups = (Object.keys(groupLabels) as CheckGroup[])
+    .map((g) => ({ id: g, items: shown.filter((r) => r.group === g) }))
+    .filter((g) => g.items.length > 0);
+  const failCount = (s: Severity) => failing.filter((r) => r.severity === s).length;
+  const fixableFailing = failing.filter(hasFix).length;
+  const manual = patchResult ? failing.filter((r) => !patchedChecks.has(r.checkId)).sort(bySeverity) : [];
+  const selected = patches.find((e) => e.patch.id === selectedPatch) ?? patches[0];
+  const tamperId = mock || patchResult?.mock ? undefined : patches.find((e) => e.guard.ok && tamperEdits(e.patch.edits))?.patch.id;
+  const toApprove = patches.filter((e) => e.guard.ok && !approved.includes(e.patch.id));
+  const severityOf = (checkId: string) => results.find((r) => r.checkId === checkId)?.severity ?? "info";
   const statusText =
     busy === "scan"
-      ? "Scanning files."
-      : busy === "patches"
-        ? "Generating fixes."
-        : report
-          ? `Scan finished. ${report.passed} of ${report.total} checks pass. Score ${report.score}.`
-          : "";
+      ? "Scanning the repo…"
+      : busy === "restore"
+        ? "Loading the scan…"
+        : busy === "patches"
+          ? "Drafting patches and rescanning…"
+          : busy === "approve-all"
+            ? "Approving guard-passed patches…"
+            : downloading
+              ? "Building the download…"
+              : "";
+  const stepTitle: Record<Step, string> = {
+    connect: "Scan a repo",
+    findings: "Findings",
+    fixes: "Review fixes",
+    verify: "Verify & ship",
+  };
+
+  const filterButtons: { id: Filter; label: string; n: number }[] = [
+    { id: "failing", label: "Failing", n: failing.length },
+    { id: "passed", label: "Passing", n: passedList.length },
+    { id: "na", label: "N/A", n: naList.length },
+    { id: "all", label: "All", n: results.length },
+  ];
 
   return (
-    <>
+    <div className="app-shell">
       <header className="dashboard-header">
-        <a className="wordmark" href="/" aria-label="Siidekick home">
+        <a className="wordmark" href="/">
           Siide<span>kick</span>
         </a>
+        <nav aria-label="Steps">
+          <ol className="step-rail">
+            {STEPS.map((s, i) => (
+              <li key={s.id}>
+                <button
+                  type="button"
+                  disabled={!canOpen(s.id) || busy === "scan" || busy === "restore"}
+                  aria-current={step === s.id ? "step" : undefined}
+                  onClick={() => go(s.id)}
+                >
+                  <span className="step-num">{i + 1}</span>
+                  {s.label}
+                </button>
+              </li>
+            ))}
+          </ol>
+        </nav>
         <div className="dashboard-tools">
-          {mock && <span className="demo-badge">demo data, API offline</span>}
-          <a href="/">Back to site</a>
+          {report && step !== "connect" && (
+            <button type="button" className="button secondary" onClick={newScan}>
+              New scan
+            </button>
+          )}
+          {(mock || isMockSession()) && <span className="demo-badge">sample data, API offline</span>}
+          <a className="back-link" href="/">
+            Back to site
+          </a>
         </div>
       </header>
+
+      <p className="visually-hidden" role="status">
+        {statusText}
+      </p>
+
       <main className="dashboard">
-        <p className="visually-hidden" role="status">
-          {statusText}
-        </p>
-
-        <section className="start-panel" aria-labelledby="scan-title">
-          <div>
-            <h1 id="scan-title">Review a small repo</h1>
-            <p className="muted">
-              Paste a public GitHub repo, use the demo shop, or pick a folder. Nothing in your code changes until you
-              approve a patch.
-            </p>
-          </div>
-          <div className="start-inputs">
-            <form className="repo-form" onSubmit={handleGithub}>
-              <label htmlFor="repo-url">Public GitHub repo</label>
+        {report && step !== "connect" && (
+          <section className="scan-strip" aria-label="Current scan">
+            <Score score={report.score} />
+            <dl>
               <div>
-                <input
-                  id="repo-url"
-                  type="url"
-                  inputMode="url"
-                  required
-                  placeholder="https://github.com/owner/repo"
-                  value={repoUrl}
-                  onChange={(event) => setRepoUrl(event.target.value)}
-                  aria-describedby="repo-note"
-                />
-                <button className="button primary" type="submit" disabled={busy !== ""}>
-                  Scan repo
-                </button>
+                <dt>Repo</dt>
+                <dd className="repo-name">{report.repo}</dd>
               </div>
-              <small id="repo-note">Only scan repos you own or have permission to scan. No code is run.</small>
-            </form>
-          <div className="start-actions">
-            <button className="button secondary" onClick={() => runScan(createDemoScan, [], true)} disabled={busy !== ""}>
-              Scan the demo shop
-            </button>
-            <button className="button secondary" onClick={() => inputRef.current?.click()} disabled={busy !== ""}>
-              Choose a folder
-            </button>
-            <input
-              ref={inputRef}
-              className="visually-hidden"
-              type="file"
-              multiple
-              tabIndex={-1}
-              aria-hidden="true"
-              {...({ webkitdirectory: "", directory: "" } as InputHTMLAttributes<HTMLInputElement>)}
-              onChange={handleFiles}
-            />
-          </div>
-          </div>
-        </section>
-
-        <div role="alert">{error && <div className="state-box error">{error}</div>}</div>
-        {notes.length > 0 && (
-          <ul className="notes">
-            {notes.map((note) => (
-              <li key={note}>{note}</li>
-            ))}
-          </ul>
+              <div>
+                <dt>Failing</dt>
+                <dd className="sev-counts">
+                  {failing.length === 0
+                    ? "none"
+                    : SEVERITIES.filter((s) => failCount(s) > 0).map((s) => (
+                        <span key={s} className={`severity ${s}`}>
+                          {failCount(s)} {s}
+                        </span>
+                      ))}
+                </dd>
+              </div>
+              <div>
+                <dt>Passing</dt>
+                <dd>
+                  {report.passed} of {report.total}
+                </dd>
+              </div>
+              {naList.length > 0 && (
+                <div>
+                  <dt>Not applicable</dt>
+                  <dd>{naList.length}</dd>
+                </div>
+              )}
+              {omitted ? (
+                <div>
+                  <dt>Not read</dt>
+                  <dd>{plural(omitted, "file")}</dd>
+                </div>
+              ) : null}
+            </dl>
+          </section>
         )}
-        {busy === "scan" && <div className="state-box">Scanning files…</div>}
-        {busy !== "scan" && !report && (
-          <div className="empty-state">
-            <strong>No scan yet</strong>
-            <span>15 checks run on the files you give it. The demo shop takes about a second.</span>
+
+        {error && (
+          <div className="state-box error" role="alert">
+            <p>{error}</p>
+            <button type="button" className="button secondary" onClick={() => setError("")}>
+              Dismiss
+            </button>
           </div>
         )}
 
-        {report && (
-          <>
-            <section className="report-panel" aria-labelledby="report-title">
-              <div className="report-heading">
+        {step === "connect" && (
+          <div className="connect-grid">
+            <section className="connect-main">
+              <h1 ref={heading} tabIndex={-1}>
+                {stepTitle.connect}
+              </h1>
+              <p className="lede">
+                Point Siidekick at a repo. It reads the code, flags what an attacker would find first, and drafts fixes you
+                approve one by one.
+              </p>
+              <form className="repo-form" onSubmit={handleGithub}>
+                <label htmlFor="repo-url">GitHub repository</label>
                 <div>
-                  <h2 id="report-title" ref={headingRef} tabIndex={-1}>
-                    {report.repo}
-                  </h2>
-                  {lang === "hi" ? (
-                    <p className="passed-total" lang="hi">
-                      {report.total} {ui.hi.of} <strong>{report.passed}</strong> {ui.hi.checksPass}
-                    </p>
-                  ) : (
-                    <p className="passed-total">
-                      <strong>{report.passed}</strong> of {report.total} checks pass
-                    </p>
-                  )}
-                </div>
-                <Score score={report.score} />
-              </div>
-              <div className="lang-toggle" role="group" aria-label="Explanation language">
-                <button type="button" aria-pressed={lang === "en"} onClick={() => setLang("en")}>
-                  English
-                </button>
-                <button type="button" lang="hi" aria-pressed={lang === "hi"} onClick={() => setLang("hi")}>
-                  हिन्दी
-                </button>
-              </div>
-              <div className="report-groups">
-                {grouped.map(({ group, results }) => (
-                  <section key={group} className="group">
-                    <h3>
-                      <span className="group-letter">{group[0]}</span>
-                      {groupLabels[group]}
-                    </h3>
-                    {results.map((result) => (
-                      <FindingRow key={result.checkId} result={result} lang={lang} />
-                    ))}
-                  </section>
-                ))}
-              </div>
-            </section>
-
-            <section className="patches-panel" aria-labelledby="patches-title">
-              <div className="patches-heading">
-                <div>
-                  <h2 id="patches-title">Proposed fixes</h2>
-                  <p className="muted">Each patch only adds lines. The diff guard blocks any patch that deletes or rewrites yours.</p>
-                </div>
-                <button className="button primary" onClick={handleGenerate} disabled={busy !== ""}>
-                  {busy === "patches" ? "Generating…" : patchResult ? "Generate again" : "Generate fixes"}
-                </button>
-              </div>
-
-              {patchResult && patches.length === 0 && <p className="muted">No patch templates apply to this repo.</p>}
-
-              {patches.map((entry) => (
-                <PatchCard
-                  key={entry.patch.id}
-                  entry={entry}
-                  scanId={scanId}
-                  tamperable={entry.patch.id === tamperId}
-                  approved={approved.includes(entry.patch.id)}
-                  pending={approving === entry.patch.id}
-                  locked={approving !== ""}
-                  onApprove={() => handleApprove(entry.patch.id)}
-                />
-              ))}
-
-              {patchResult && patches.length > 0 && (
-                <div className="rescan-result">
-                  <div className="rescan-score">
-                    <strong>{patchResult.scoreBefore}</strong>
-                    <span aria-hidden="true">→</span>
-                    <span className="visually-hidden">to</span>
-                    <strong>{patchResult.scoreAfter}</strong>
-                  </div>
-                  <p className="muted">
-                    {patchResult.mock
-                      ? "Projected score with the guard-passed patches applied. Demo data, not a live rescan."
-                      : "Score after a rescan with the guard-passed patches applied. Tests were not run."}
-                  </p>
-                  <span className={`status-chip ${patchResult.status}`}>
-                    {patchResult.status === "rescan-clean" ? "every check passes" : "some checks still fail"}
-                  </span>
-                  <button className="button secondary" onClick={handleDownload} disabled={approved.length === 0}>
-                    {approved.length === 0 ? "Approve a patch to download" : `Download ${plural(approved.length, "approved patch")}`}
+                  <input
+                    id="repo-url"
+                    type="url"
+                    inputMode="url"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="https://github.com/owner/repo"
+                    value={repoUrl}
+                    onChange={(e) => setRepoUrl(e.target.value)}
+                    aria-describedby="repo-note"
+                    required
+                  />
+                  <button className="button primary" type="submit" disabled={!!busy}>
+                    {busy === "scan" ? "Scanning…" : "Scan"}
                   </button>
                 </div>
+                <small id="repo-note">
+                  Public GitHub repos. Only scan repos you own or have permission to scan. No code is run.
+                </small>
+              </form>
+              <div className="connect-alt">
+                <span>or</span>
+                <button
+                  type="button"
+                  className="button secondary"
+                  disabled={!!busy}
+                  onClick={() => folderInput.current?.click()}
+                >
+                  Upload a folder
+                </button>
+                <button
+                  type="button"
+                  className="button secondary"
+                  disabled={!!busy}
+                  onClick={() => void runScan(createDemoScan, [], "demo")}
+                >
+                  Try the demo shop
+                </button>
+                <input
+                  ref={folderInput}
+                  className="visually-hidden"
+                  type="file"
+                  multiple
+                  tabIndex={-1}
+                  aria-hidden="true"
+                  onChange={handleFiles}
+                  {...({ webkitdirectory: "", directory: "" } as InputHTMLAttributes<HTMLInputElement>)}
+                />
+              </div>
+              {(busy === "scan" || busy === "restore") && (
+                <div className="state-box" aria-hidden="true">
+                  <p>{statusText}</p>
+                </div>
+              )}
+              {gone && (
+                <div className="state-box">
+                  <p>
+                    {gone.repo}: this scan is gone (the server restarted). Scan again.
+                  </p>
+                  {gone.url && (
+                    <button
+                      type="button"
+                      className="button secondary"
+                      disabled={!!busy}
+                      onClick={() => void runScan(() => githubScan(gone.url!), [], "github", gone.url)}
+                    >
+                      Rescan {gone.repo}
+                    </button>
+                  )}
+                </div>
+              )}
+              {notes.length > 0 && (
+                <ul className="read-notes">
+                  {notes.map((n) => (
+                    <li key={n}>{n}</li>
+                  ))}
+                </ul>
               )}
             </section>
 
-            {demo && patchResult && patches.length > 0 && (
-              <ProofPanel key={scanId} scanId={scanId} approved={approved} mock={mock || patchResult.mock} results={report.results} />
+            <aside className="connect-side">
+              {report && (
+                <section className="side-card current">
+                  <h2>Current scan</h2>
+                  <p>
+                    <strong>{report.repo}</strong> scored {report.score}, with {plural(failing.length, "failing check")}.
+                  </p>
+                  <button type="button" className="button primary" onClick={() => go("findings")}>
+                    Continue to findings
+                  </button>
+                </section>
+              )}
+              <section className="side-card">
+                <h2>What happens</h2>
+                <ol className="how-list">
+                  <li>
+                    <strong>Scan.</strong> The code is read as text. Nothing is installed or run.
+                  </li>
+                  <li>
+                    <strong>Findings.</strong> Each failing check points at the file and line, and says why it matters.
+                  </li>
+                  <li>
+                    <strong>Fixes.</strong> Template patches must pass a diff guard that blocks changes outside their scope.
+                  </li>
+                  <li>
+                    <strong>Ship.</strong> Download only the patches you approved and apply them with git.
+                  </li>
+                </ol>
+              </section>
+              {recent.length > 0 && (
+                <section className="side-card">
+                  <h2>Recent scans</h2>
+                  <ul className="recent-list">
+                    {recent.map((r) => (
+                      <li key={r.id}>
+                        <button type="button" disabled={!!busy} onClick={() => void restore(r.id, "findings")}>
+                          <span className="recent-repo">{r.repo}</span>
+                          <span className="recent-meta">
+                            {SOURCE_LABEL[r.source]} · {ago(r.at)}
+                          </span>
+                          <span className="recent-score">{r.score}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </aside>
+          </div>
+        )}
+
+        {step === "findings" && report && (
+          <section className="findings-step">
+            <div className="step-head">
+              <h1 ref={heading} tabIndex={-1}>
+                {stepTitle.findings}
+              </h1>
+              <p className="lede">
+                {failing.length === 0
+                  ? `Every applicable check passes on ${report.repo}.`
+                  : `${plural(failing.length, "check")} failing on ${report.repo}, worst first. Open a row for the file, line and reason.`}
+              </p>
+            </div>
+            <div className="toolbar">
+              <div className="seg" role="group" aria-label="Show">
+                {filterButtons.map((f) => (
+                  <button key={f.id} type="button" aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}>
+                    {f.label} <span className="count">{f.n}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="seg" role="group" aria-label="Group by">
+                <button type="button" aria-pressed={view === "severity"} onClick={() => setView("severity")}>
+                  By severity
+                </button>
+                <button type="button" aria-pressed={view === "category"} onClick={() => setView("category")}>
+                  By category
+                </button>
+              </div>
+              <div className="seg lang-toggle" role="group" aria-label="Explanation language">
+                <button type="button" aria-pressed={lang === "en"} onClick={() => setLang("en")}>
+                  English
+                </button>
+                <button type="button" aria-pressed={lang === "hi"} onClick={() => setLang("hi")} lang="hi">
+                  हिन्दी
+                </button>
+              </div>
+            </div>
+            {lang === "hi" && (
+              <p className="hi-line" lang="hi">
+                {report.total} {ui.hi.of} <strong>{report.passed}</strong> {ui.hi.checksPass}
+              </p>
             )}
-          </>
+            {shown.length === 0 ? (
+              <p className="empty-state">Nothing here.</p>
+            ) : view === "severity" ? (
+              <div className="finding-list">
+                {shown.map((r) => (
+                  <FindingRow key={r.checkId} result={r} lang={lang} hasFix={hasFix(r)} />
+                ))}
+              </div>
+            ) : (
+              groups.map((g) => (
+                <section className="group" key={g.id}>
+                  <h3>
+                    <span className="group-letter">{groupLabels[g.id]}</span>
+                  </h3>
+                  <div className="finding-list">
+                    {g.items.map((r) => (
+                      <FindingRow key={r.checkId} result={r} lang={lang} hasFix={hasFix(r)} />
+                    ))}
+                  </div>
+                </section>
+              ))
+            )}
+            {failing.length > 0 && (
+              <div className="step-cta">
+                <p>
+                  <strong>{fixableFailing}</strong> of {plural(failing.length, "failing check")} {fixableFailing === 1 ? "has" : "have"} an
+                  auto-fix template. The rest need a human.
+                </p>
+                <button type="button" className="button primary" onClick={() => go("fixes")}>
+                  Review fixes →
+                </button>
+              </div>
+            )}
+          </section>
+        )}
+
+        {step === "fixes" && report && (
+          <section className="fixes-step">
+            <div className="step-head with-actions">
+              <div>
+                <h1 ref={heading} tabIndex={-1}>
+                  {stepTitle.fixes}
+                </h1>
+                <p className="lede">
+                  Each patch is drafted from a template, checked by the diff guard, and rescanned. Nothing changes until you
+                  approve it.
+                </p>
+              </div>
+              {patchResult && patches.length > 0 && (
+                <div className="head-actions">
+                  <button
+                    type="button"
+                    className="button approve"
+                    disabled={toApprove.length === 0 || !!busy || !!pendingId}
+                    onClick={() => void handleApproveAll()}
+                  >
+                    {busy === "approve-all" ? "Approving…" : `Approve all guard-passed (${toApprove.length})`}
+                  </button>
+                  <button
+                    type="button"
+                    className="button secondary"
+                    disabled={!!busy || !!pendingId}
+                    onClick={() => void handleGenerate()}
+                  >
+                    Regenerate
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {busy === "patches" && (
+              <div className="state-box" aria-hidden="true">
+                <p>Drafting patches and rescanning…</p>
+              </div>
+            )}
+
+            {!patchResult && busy !== "patches" && (
+              <div className="state-box">
+                <p>No patches drafted yet.</p>
+                <button type="button" className="button primary" onClick={() => void handleGenerate()}>
+                  Draft patches
+                </button>
+              </div>
+            )}
+
+            {patchResult && patches.length === 0 && (
+              <p className="empty-state">
+                {failing.length === 0 ? "Nothing to fix: every applicable check passes." : "No failing check has an auto-fix template. See the list below."}
+              </p>
+            )}
+
+            {patchResult && patches.length > 0 && selected && (
+              <div className="fix-layout">
+                <ol className="fix-list" aria-label="Patches">
+                  {patches.map((e) => {
+                    const isOn = approved.includes(e.patch.id);
+                    const added = e.guard.added;
+                    const removed = e.guard.removed;
+                    return (
+                      <li key={e.patch.id}>
+                        <button
+                          type="button"
+                          aria-current={selected.patch.id === e.patch.id ? "true" : undefined}
+                          onClick={() => setSelectedPatch(e.patch.id)}
+                        >
+                          <span className="fix-title">
+                            {isOn && <span className="fix-done" aria-label="approved">✓ </span>}
+                            {e.patch.title}
+                          </span>
+                          <span className="fix-meta">
+                            <span className={`severity ${severityOf(e.patch.checkId)}`}>{severityOf(e.patch.checkId)}</span>
+                            <span className={`guard-chip ${e.guard.ok ? "ok" : "blocked"}`}>{e.guard.ok ? "guard ok" : "blocked"}</span>
+                            <span className="fix-lines">
+                              <span className="plus">+{added}</span> <span className="minus">−{removed}</span>
+                            </span>
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ol>
+                <div className="fix-detail">
+                  <PatchCard
+                    key={selected.patch.id}
+                    entry={selected}
+                    scanId={scanId}
+                    tamperable={selected.patch.id === tamperId}
+                    approved={approved.includes(selected.patch.id)}
+                    pending={pendingId === selected.patch.id}
+                    locked={(!!pendingId && pendingId !== selected.patch.id) || busy === "approve-all"}
+                    onApprove={() => void approveOne(selected.patch.id)}
+                  />
+                </div>
+              </div>
+            )}
+
+            {manual.length > 0 && (
+              <section className="manual-list">
+                <h2>Needs a human ({manual.length})</h2>
+                <p>No safe template exists for these. Each one says where to look.</p>
+                <ul>
+                  {manual.map((r) => {
+                    const first = r.findings[0];
+                    return (
+                      <li key={r.checkId}>
+                        <div className="manual-head">
+                          <strong>{r.title}</strong>
+                          <span className={`severity ${r.severity}`}>{r.severity}</span>
+                        </div>
+                        {first && (
+                          <>
+                            <code className="finding-loc">
+                              {first.file || "repository"}
+                              {first.line ? `:${first.line}` : ""}
+                            </code>
+                            <p>{first.explanation}</p>
+                          </>
+                        )}
+                        {r.findings.length > 1 && <small>and {plural(r.findings.length - 1, "more place")}</small>}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            )}
+
+            {patchResult && (
+              <div className="step-cta">
+                <p>
+                  {patches.length > 0 ? (
+                    <>
+                      Approve every guard-passed fix and the projected score is <strong>{patchResult.scoreAfter}</strong>.{" "}
+                      {approved.length} of {patches.length} approved.
+                    </>
+                  ) : (
+                    "Nothing to approve."
+                  )}
+                </p>
+                <button type="button" className="button primary" onClick={() => go("verify")}>
+                  Verify & download →
+                </button>
+              </div>
+            )}
+          </section>
+        )}
+
+        {step === "verify" && report && patchResult && (
+          <section className="verify-step">
+            <div className="step-head">
+              <h1 ref={heading} tabIndex={-1}>
+                {stepTitle.verify}
+              </h1>
+              <p className="lede">The repo is rescanned with only the patches you approved, so the number below is earned.</p>
+            </div>
+            <div className="verify-scores">
+              <div>
+                <span>Before</span>
+                <strong>{report.score}</strong>
+              </div>
+              <div className="is-main">
+                <span>With approved fixes</span>
+                <strong>{mock || patchResult.mock ? "—" : (summary?.score ?? report.score)}</strong>
+                <small>
+                  {mock || patchResult.mock
+                    ? "Needs the scan server."
+                    : approved.length === 0
+                      ? "Nothing approved yet."
+                      : `${plural(approved.length, "patch")} approved.`}
+                </small>
+              </div>
+              <div>
+                <span>Ideal</span>
+                <strong>{patchResult.scoreAfter}</strong>
+                <small>If you approve every guard-passed fix.</small>
+              </div>
+            </div>
+
+            {summary && summary.failing.length > 0 && (
+              <section className="still-failing">
+                <h2>Still failing after your approvals</h2>
+                <ul>
+                  {summary.failing.map((id) => {
+                    const r = report.results.find((x) => x.checkId === id);
+                    return (
+                      <li key={id}>
+                        <span>{r?.title ?? id}</span>
+                        {r && <span className={`severity ${r.severity}`}>{r.severity}</span>}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            )}
+
+            <div className="ship-row">
+              <section className="ship-card">
+                <h2>Download</h2>
+                <p>A zip of the changed files, only from approved patches, plus a patch log in .siidekick/.</p>
+                <button
+                  type="button"
+                  className="button primary"
+                  disabled={approved.length === 0 || downloading}
+                  onClick={() => void handleDownload()}
+                >
+                  {downloading ? "Building…" : approved.length === 0 ? "Approve a patch first" : "Download approved changes"}
+                </button>
+              </section>
+              <section className="ship-card">
+                <h2>Apply it</h2>
+                <ol className="how-list">
+                  <li>Unzip over the repo root.</li>
+                  <li>
+                    Read <code>git diff</code>.
+                  </li>
+                  <li>Run your tests.</li>
+                  <li>Commit. The .siidekick log records what changed and why.</li>
+                </ol>
+              </section>
+            </div>
+
+            {demo && <ProofPanel key={scanId} scanId={scanId} approved={approved} mock={mock} results={results} />}
+          </section>
         )}
       </main>
-    </>
+    </div>
   );
 }

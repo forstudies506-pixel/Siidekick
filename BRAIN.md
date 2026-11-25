@@ -23,11 +23,11 @@ Siidekick: scans a web repo, explains risks, proposes template patches (additive
 | `packages/engine/src/replay.ts` | `replayDemo`: writes before/after copies of the demo to a temp dir, boots each with `node` on a free port (minimal env, `runtimeDir` supplies express/lodash), fires 5 live attacks + 1 source check with control checks, runs the after copy's tests with `node --test`; `attackPaths` chains receipts into paths. Demo shop only | tested |
 | `packages/engine/src/loadRepo.ts` | read a dir into a snapshot (skips node_modules/.git/dist/.siidekick, >512 KB, binary) | done |
 | `packages/engine/src/cli.ts` | `siidekick scan <dir> [--json]`, `siidekick fix <dir> [--out <dir>] [--verify]` (`--verify` needs `--out`) | done |
-| `packages/engine/src/util.ts` | `redact`, `lineAt`, `CODE_EXT`, `DOC_EXT` (docs never pass a code check) | done |
+| `packages/engine/src/util.ts` | `redact`, `lineAt`, `CODE_EXT`, `DOC_EXT` (docs never pass a code check), `serverShape()` (which server kinds a repo holds; drives `skip`) | done |
 | `demo/vulnerable-app/` | CampusKart Express app with 12 planted flaws (`FLAWS.md`; 9–12 in files `server.js` never loads), node:test tests | done, 2 → 59 after fix (CLI) |
 | `apps/api/` | pure router + Lambda + local node:http (port 8787), storage `STORAGE=local\|dynamo` (Dynamo records gzipped, 413 past the 400 KB item limit); download includes the patch log; `/patches/:id/check` replays an edited patch through the guard; `/prove` runs the attack replay on demo records only (`demo: true`); scan fetches go through `cachedOsvFetch` (OSV answers reused 10 min); `build` also copies the demo JSON and builds `dist/runtime/node_modules` for the replay | tested (26 tests) |
 | `apps/api/src/github.ts` | public GitHub URL → codeload tarball, size/file caps, no redirects, in-memory tar parse, no code run | tested |
-| `apps/web/` | Vite + React: landing `/`, dashboard `/app` (`?demo=1` auto-scans) on the real API; `VITE_MOCK=1` forces the mock adapter | done, Claude only |
+| `apps/web/` | Vite + React: landing `/`, dashboard `/app` as a 4-step flow (`?scan=<id>&step=connect\|findings\|fixes\|verify`, `?demo=1` auto-scans) on the real API; `api/client.ts` `live()` maps `ApiUnavailable` to an offline state; `VITE_MOCK=1` forces the mock adapter | done, Claude only |
 | `apps/web/src/zip.ts` | store-only ZIP writer for the approved-patch download | done |
 | `apps/web/src/i18n/hi.ts` | Hindi titles and reasons per check; needs a native speaker check (#2) | done, unchecked |
 | `infra/` | AWS SAM template (HttpApi, Lambda arm64, DynamoDB, S3 + CloudFront OAC) | prepared, not deployed |
@@ -51,7 +51,7 @@ npm run dev -w @siidekick/web # web on :5173 (VITE_MOCK=1 for mock data)
 ```
 
 ## API contract
-`GET /api/health` · `POST /api/scans {name, files[]}` (≤500 files, ≤2 MB) · `POST /api/scans/demo` · `GET /api/scans/:id` · `POST /api/scans/:id/patches` · `POST /api/scans/:id/patches/:patchId/approve` · `POST /api/scans/:id/patches/:patchId/check` · `POST /api/scans/:id/prove` (demo only) · `GET /api/scans/:id/download`. Details: `docs/workstreams/WS-api-infra.md`.
+`GET /api/health` · `POST /api/scans {name, files[]}` (≤500 files, ≤2 MB) · `POST /api/scans/demo` · `GET /api/scans/:id` (stored scan, for reload) · `POST /api/scans/:id/patches` · `POST /api/scans/:id/patches/:patchId/approve` · `POST /api/scans/:id/patches/:patchId/check` · `POST /api/scans/:id/prove` (demo only) · `GET /api/scans/:id/download`. Details: `docs/workstreams/WS-api-infra.md`.
 
 ## Design (web)
 Dark graphite + amber, soft neo-brutalism, editorial. OKLCH tokens. Schibsted Grotesk + JetBrains Mono. Amber = add/action, red = blocked/deleted, green = passed only.

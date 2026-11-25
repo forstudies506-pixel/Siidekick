@@ -193,9 +193,18 @@ export function makeRouter(deps: { store: Store; fetch?: typeof fetch; replayRun
     if (!UUID_RE.test(params.id)) return { status: 400, body: { error: "invalid id" } };
     const record = await store.get(params.id);
     if (!record) return { status: 404, body: { error: "not found" } };
+    const anyApproved = (record.patches ?? []).some((p) => p.approved);
     return {
       status: 200,
-      body: { id: record.id, report: record.report, patches: record.patches, after: record.after, omitted: record.omitted },
+      body: {
+        id: record.id,
+        report: record.report,
+        patches: record.patches,
+        after: record.after,
+        omitted: record.omitted,
+        demo: record.demo === true,
+        ...(anyApproved ? { approvedSummary: await approvedSummary(record) } : {}),
+      },
     };
   }
 
@@ -284,6 +293,13 @@ export function makeRouter(deps: { store: Store; fetch?: typeof fetch; replayRun
     return { snapshot: current, applied };
   }
 
+  /** Rescan of the repo with only the approved patches applied: what the owner would ship. */
+  async function approvedSummary(record: ScanRecord): Promise<{ score: number; passed: number; total: number; failing: string[] }> {
+    const rescan = await runScan({ repo: (await approvedSnapshot(record)).snapshot, fetch: scanFetch }, registry);
+    const failing = rescan.results.filter((r) => !r.passed && !r.skipped).map((r) => r.checkId);
+    return { score: rescan.score, passed: rescan.passed, total: rescan.total, failing };
+  }
+
   async function approveHandler(params: Record<string, string>): Promise<{ status: number; body: unknown }> {
     if (!UUID_RE.test(params.id)) return { status: 400, body: { error: "invalid id" } };
     // patchId is the check-defined patch id (e.g. "secrets-in-repo-1"), not a UUID.
@@ -296,8 +312,7 @@ export function makeRouter(deps: { store: Store; fetch?: typeof fetch; replayRun
     patch.approved = true;
     const approved = patches.filter((p) => p.approved).map((p) => p.patchId);
     await store.put(params.id, record);
-    const rescan = await runScan({ repo: (await approvedSnapshot(record)).snapshot, fetch: scanFetch }, registry);
-    return { status: 200, body: { approved, score: rescan.score, passed: rescan.passed, total: rescan.total } };
+    return { status: 200, body: { approved, ...(await approvedSummary(record)) } };
   }
 
   /**
