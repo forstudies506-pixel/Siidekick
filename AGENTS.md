@@ -1,16 +1,18 @@
 # AGENTS.md: team rules (humans + AI agents)
 
-Read `BRAIN.md` first (the map), then `HANDOFF.md` (current state), then your brief in `docs/workstreams/`.
+Read `BRAIN.md` first (the map), then `HANDOFF.md` (current state), then `docs/PLAN.md` (who owns what this week).
 
 ## Team
-| Workstream | Owner | Owns (only edit these) | Brief |
-|---|---|---|---|
-| WS-core | Claude (lead) | `packages/engine/src/{types,diffGuard,registry,apply,cli,index,util,loadRepo}.ts`, `checks/secrets.ts`, root docs | — |
-| WS-demo | kilo | `demo/vulnerable-app/**` | `docs/workstreams/WS-demo.md` |
-| WS-engine-security | opencode (lead agent) | `packages/engine/src/checks/security.ts` + new security check/test files | `WS-engine-security.md` |
-| WS-engine-delivery | kilo (after demo) | `packages/engine/src/checks/delivery.ts` + new delivery check/test files | `WS-engine-delivery.md` |
-| WS-api-infra | opencode (developer agent) | `apps/api/**`, `infra/**` | `WS-api-infra.md` |
-| WS-web-landing | copilot | `apps/web/**` | `WS-web-landing.md` |
+| Workstream | Owner | Owns (only edit these) |
+|---|---|---|
+| Core + UI | Claude (lead) | `packages/engine/src/{types,diffGuard,registry,apply,cli,index,loadRepo}.ts`, `checks/secrets.ts`, `apps/web/**` (UI is never delegated), `apps/api/src/router.ts` tamper route, root docs |
+| GitHub URL scan | opencode developer | `apps/api/src/github.ts`, `apps/api/src/tar.ts` + their tests; one route entry in `router.ts` |
+| Cleanup | kilo | `packages/engine/src/util.ts`, `checks/auth-on-endpoints.ts`, `checks/sql-string-concat.ts` (dedupe only) |
+| Pitch numbers | copilot | `docs/pitch/**` |
+| Research | Sonnet subagent | `docs/research/**` (Claude checks every source) |
+| GitHub Action, badge | opencode lead / kilo (Nov 27) | `action/**`, badge route |
+
+Plan and owners per item: `docs/PLAN.md`.
 
 Rules for every worker: `docs/workstreams/COMMON.md`. `types.ts` is the shared contract: change it only via a board comment.
 

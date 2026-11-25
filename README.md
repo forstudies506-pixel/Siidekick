@@ -30,4 +30,4 @@ Add `--verify` (with `--out`) to run your own `npm test` after each patch; a pat
 - Planned: web dashboard, AWS deploy (template and `scripts/deploy.sh` are ready, not yet run). See `HANDOFF.md`.
 
 ## Docs
-[ROADMAP](docs/ROADMAP.md) (full spec) · [PLAN](docs/PLAN.md) (hackathon plan) · [BRAIN](BRAIN.md) (repo map) · [AGENTS](AGENTS.md) (team rules) · [HANDOFF](HANDOFF.md) (current state)
+[ROADMAP](docs/ROADMAP.md) (full spec) · [IDEA](docs/IDEA.md) (pitch) · [PLAN](docs/PLAN.md) (3-day finish plan) · [BRAIN](BRAIN.md) (repo map) · [AGENTS](AGENTS.md) (team rules) · [HANDOFF](HANDOFF.md) (current state)
