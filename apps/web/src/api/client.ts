@@ -15,12 +15,22 @@ export interface PatchEntry {
   diff: FileDiff[];
 }
 
+/** Where a website scan looked, after redirects. */
+export interface SiteInfo {
+  url: string;
+  finalUrl: string;
+  fetchedAt: string;
+}
+
 export interface ScanResponse {
   id: string;
   report: ScanReport;
   mock: boolean;
   /** Text files of a big GitHub repo left out past the size caps. */
   omitted?: number;
+  /** Set for a live website scan: report only, nothing to patch. */
+  kind?: "site";
+  site?: SiteInfo;
 }
 
 export interface PatchResponse {
@@ -110,12 +120,12 @@ export function uploadScan(name: string, files: RepoFile[]): Promise<ScanRespons
   );
 }
 
-// A GitHub scan only works on the real API: sample data has no copy of someone else's repo.
-export async function githubScan(url: string): Promise<ScanResponse> {
+// GitHub and website scans only work on the real API: sample data has no copy of someone else's code or site.
+async function liveScan(path: string, url: string): Promise<ScanResponse> {
   mockApproved.clear();
   try {
     const r = await request<Omit<ScanResponse, "mock">>(
-      "/api/scans/github",
+      path,
       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) },
       validScan,
     );
@@ -124,6 +134,21 @@ export async function githubScan(url: string): Promise<ScanResponse> {
   } catch (e) {
     if (e instanceof ApiUnavailable) throw new Error(OFFLINE);
     throw e;
+  }
+}
+
+export const githubScan = (url: string) => liveScan("/api/scans/github", url);
+
+/** Passive scan of a live website: reads its headers, cookies and HTML. */
+export const siteScan = (url: string) => liveScan("/api/sites", url);
+
+/** github.com/owner/repo goes to the repo scanner; any other address is scanned as a website. */
+export function isGithubRepo(input: string): boolean {
+  try {
+    const u = new URL(/^[a-z]+:\/\//i.test(input.trim()) ? input.trim() : `https://${input.trim()}`);
+    return /^(www\.)?github\.com$/i.test(u.hostname) && u.pathname.split("/").filter(Boolean).length >= 2;
+  } catch {
+    return false;
   }
 }
 
@@ -190,6 +215,8 @@ export interface StoredScan {
   omitted?: number;
   demo?: boolean;
   approvedSummary?: ApprovedSummary;
+  kind?: "site";
+  site?: SiteInfo;
 }
 
 export async function getScan(id: string): Promise<StoredScan> {
