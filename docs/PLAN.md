@@ -31,6 +31,6 @@ Delivery/monitoring/UI (A/B/E): `readme`, `ci-workflow`, `health-endpoint`, `err
 | Nov 29 | Submit (team leader only). |
 
 ## Open risks
-- AWS access type unknown (Builder ID alone cannot deploy). No `aws`/`sam` CLI installed yet.
+- AWS Educate account: likely no IAM role creation, limited regions, expiring sessions (unverified). Template must accept an existing role ARN. No `aws`/`sam` CLI installed yet. Bedrock: not allowed.
 - OSV lookups need internet; demo wifi may fail → cache OSV results for the demo repo.
 - Free agent output quality varies → every diff is reviewed and tested before commit.

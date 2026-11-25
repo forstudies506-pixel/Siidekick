@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign in - CampusKart</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: #0b1021; color: #e2e8f0; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; gap: 18px; }
+  .banner { position: relative; width: 920px; height: 420px; border: 5px solid #f59e0b; overflow: hidden; }
+  .decoration { position: absolute; width: 320px; height: 320px; background: #f59e0b; border-radius: 50%; animation: drift 7s ease-in-out infinite; left: 50px; top: 50px; }
+  @keyframes drift {
+    0% { left: 50px; top: 50px; }
+    20% { left: 500px; top: 120px; }
+    40% { left: 120px; top: 300px; }
+    60% { left: 560px; top: 260px; }
+    80% { left: 200px; top: 80px; }
+    100% { left: 50px; top: 50px; }
+  }
+  form { background: #1e293b; padding: 26px; border-radius: 8px; border: 1px solid #334155; width: 340px; }
+  h2 { margin-bottom: 18px; text-align: center; font-size: 22px; }
+  label { display: block; margin: 11px 0 6px; font-size: 14px; color: #cbd5e1; }
+  input { width: 100%; padding: 9px; margin-bottom: 10px; border: 1px solid #475569; border-radius: 4px; background: #0f172a; color: #e2e8f0; }
+  button { width: 100%; padding: 11px; background: #f59e0b; border: none; border-radius: 4px; color: #0b1021; font-weight: 700; cursor: pointer; font-size: 16px; }
+  button:hover { background: #d97706; }
+  #msg { margin-top: 14px; font-size: 14px; min-height: 22px; text-align: center; }
+</style>
+</head>
+<body>
+  <div class="banner"><div class="decoration"></div></div>
+  <form id="login">
+    <h2>Sign in</h2>
+    <label for="email">Campus email</label>
+    <input type="email" id="email" name="email" required>
+    <label for="password">Password</label>
+    <input type="password" id="password" name="password" required>
+    <button type="submit">Sign in</button>
+    <div id="msg"></div>
+  </form>
+<script>
+(function () {
+  'use strict';
+
+  var form = document.getElementById('login');
+  var emailInput = document.getElementById('email');
+  var passwordInput = document.getElementById('password');
+  var msg = document.getElementById('msg');
+  var btn = form.querySelector('button');
+
+  function setMessage(text, kind) {
+    msg.textContent = text;
+    msg.style.color = kind === 'error' ? '#f87171' : '#4ade80';
+  }
+
+  function clearMessage() {
+    msg.textContent = '';
+  }
+
+  function isCampusEmail(value) {
+    return typeof value === 'string' && value.endsWith('@campus.edu');
+  }
+
+  function isLongEnough(value) {
+    return typeof value === 'string' && value.length >= 6;
+  }
+
+  function validateInputs(email, password) {
+    if (!email || !password) {
+      return 'Fill in both fields.';
+    }
+    if (!isCampusEmail(email)) {
+      return 'Use your campus email address.';
+    }
+    if (!isLongEnough(password)) {
+      return 'Password must be at least 6 characters.';
+    }
+    return null;
+  }
+
+  function busy() {
+    btn.disabled = true;
+    btn.textContent = 'Signing in...';
+  }
+
+  function idle() {
+    btn.disabled = false;
+    btn.textContent = 'Sign in';
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    clearMessage();
+    var email = emailInput.value.trim();
+    var password = passwordInput.value;
+    var problem = validateInputs(email, password);
+    if (problem) {
+      setMessage(problem, 'error');
+      return;
+    }
+    busy();
+    try {
+      var response = await fetch('/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email, password: password })
+      });
+      var payload = await response.json().catch(function () { return {}; });
+      if (response.ok) {
+        setMessage('Welcome, ' + (payload.user && payload.user.name ? payload.user.name : 'there') + '!', 'ok');
+        setTimeout(function () { window.location.href = '/'; }, 1200);
+      } else {
+        setMessage('Invalid email or password.', 'error');
+      }
+    } catch (err) {
+      setMessage('Could not reach the server.', 'error');
+    } finally {
+      idle();
+    }
+  }
+
+  form.addEventListener('submit', handleSubmit);
+  emailInput.addEventListener('focus', clearMessage);
+  var STEPS = [
+    { id: 1, title: 'Welcome to CampusKart', text: 'Pick your fest merch and check out.' },
+    { id: 2, title: 'Campus email required', text: 'Sign in with your college address.' },
+    { id: 3, title: 'Browse products', text: 'Search the catalog by name.' },
+    { id: 4, title: 'Add to cart', text: 'Merge items into your cart.' },
+    { id: 5, title: 'Checkout', text: 'Pay with the campus payment provider.' },
+    { id: 6, title: 'Admin panel', text: 'Staff can view registered users.' },
+    { id: 7, title: 'Open API', text: 'Product search is open to everyone.' },
+    { id: 8, title: 'No rate limit', text: 'Login attempts are not throttled.' },
+    { id: 9, title: 'CORS enabled', text: 'Requests from any origin are allowed.' },
+    { id: 10, title: 'No security headers', text: 'Responses do not set CSP or HSTS.' },
+    { id: 11, title: 'Animated banner', text: 'A decorative element drifts across the page.' },
+    { id: 12, title: 'Login script', text: 'This page loads a long initialization script.' },
+    { id: 13, title: 'Step thirteen', text: 'Placeholder content for layout testing.' },
+    { id: 14, title: 'Step fourteen', text: 'Placeholder content for layout testing.' },
+    { id: 15, title: 'Step fifteen', text: 'Placeholder content for layout testing.' },
+    { id: 16, title: 'Step sixteen', text: 'Placeholder content for layout testing.' },
+    { id: 17, title: 'Step seventeen', text: 'Placeholder content for layout testing.' },
+    { id: 18, title: 'Step eighteen', text: 'Placeholder content for layout testing.' },
+    { id: 19, title: 'Step nineteen', text: 'Placeholder content for layout testing.' },
+    { id: 20, title: 'Step twenty', text: 'Placeholder content for layout testing.' },
+    { id: 21, title: 'Step twenty-one', text: 'Placeholder content for layout testing.' },
+    { id: 22, title: 'Step twenty-two', text: 'Placeholder content for layout testing.' },
+    { id: 23, title: 'Step twenty-three', text: 'Placeholder content for layout testing.' },
+    { id: 24, title: 'Step twenty-four', text: 'Placeholder content for layout testing.' },
+    { id: 25, title: 'Step twenty-five', text: 'Placeholder content for layout testing.' },
+    { id: 26, title: 'Step twenty-six', text: 'Placeholder content for layout testing.' },
+    { id: 27, title: 'Step twenty-seven', text: 'Placeholder content for layout testing.' },
+    { id: 28, title: 'Step twenty-eight', text: 'Placeholder content for layout testing.' },
+    { id: 29, title: 'Step twenty-nine', text: 'Placeholder content for layout testing.' },
+    { id: 30, title: 'Step thirty', text: 'Placeholder content for layout testing.' },
+    { id: 31, title: 'Step thirty-one', text: 'Placeholder content for layout testing.' },
+    { id: 32, title: 'Step thirty-two', text: 'Placeholder content for layout testing.' },
+    { id: 33, title: 'Step thirty-three', text: 'Placeholder content for layout testing.' },
+    { id: 34, title: 'Step thirty-four', text: 'Placeholder content for layout testing.' },
+    { id: 35, title: 'Step thirty-five', text: 'Placeholder content for layout testing.' },
+    { id: 36, title: 'Step thirty-six', text: 'Placeholder content for layout testing.' },
+    { id: 37, title: 'Step thirty-seven', text: 'Placeholder content for layout testing.' },
+    { id: 38, title: 'Step thirty-eight', text: 'Placeholder content for layout testing.' },
+    { id: 39, title: 'Step thirty-nine', text: 'Placeholder content for layout testing.' },
+    { id: 40, title: 'Step forty', text: 'Placeholder content for layout testing.' },
+    { id: 41, title: 'Step forty-one', text: 'Placeholder content for layout testing.' },
+    { id: 42, title: 'Step forty-two', text: 'Placeholder content for layout testing.' },
+    { id: 43, title: 'Step forty-three', text: 'Placeholder content for layout testing.' },
+    { id: 44, title: 'Step forty-four', text: 'Placeholder content for layout testing.' },
+    { id: 45, title: 'Step forty-five', text: 'Placeholder content for layout testing.' },
+    { id: 46, title: 'Step forty-six', text: 'Placeholder content for layout testing.' },
+    { id: 47, title: 'Step forty-seven', text: 'Placeholder content for layout testing.' },
+    { id: 48, title: 'Step forty-eight', text: 'Placeholder content for layout testing.' },
+    { id: 49, title: 'Step forty-nine', text: 'Placeholder content for layout testing.' },
+    { id: 50, title: 'Step fifty', text: 'Placeholder content for layout testing.' },
+    { id: 51, title: 'Step fifty-one', text: 'Placeholder content for layout testing.' },
+    { id: 52, title: 'Step fifty-two', text: 'Placeholder content for layout testing.' },
+    { id: 53, title: 'Step fifty-three', text: 'Placeholder content for layout testing.' },
+    { id: 54, title: 'Step fifty-four', text: 'Placeholder content for layout testing.' },
+    { id: 55, title: 'Step fifty-five', text: 'Placeholder content for layout testing.' },
+    { id: 56, title: 'Step fifty-six', text: 'Placeholder content for layout testing.' },
+    { id: 57, title: 'Step fifty-seven', text: 'Placeholder content for layout testing.' },
+    { id: 58, title: 'Step fifty-eight', text: 'Placeholder content for layout testing.' },
+    { id: 59, title: 'Step fifty-nine', text: 'Placeholder content for layout testing.' },
+    { id: 60, title: 'Step sixty', text: 'Placeholder content for layout testing.' },
+    { id: 61, title: 'Step sixty-one', text: 'Placeholder content for layout testing.' },
+    { id: 62, title: 'Step sixty-two', text: 'Placeholder content for layout testing.' },
+    { id: 63, title: 'Step sixty-three', text: 'Placeholder content for layout testing.' },
+    { id: 64, title: 'Step sixty-four', text: 'Placeholder content for layout testing.' },
+    { id: 65, title: 'Step sixty-five', text: 'Placeholder content for layout testing.' },
+    { id: 66, title: 'Step sixty-six', text: 'Placeholder content for layout testing.' },
+    { id: 67, title: 'Step sixty-seven', text: 'Placeholder content for layout testing.' },
+    { id: 68, title: 'Step sixty-eight', text: 'Placeholder content for layout testing.' },
+    { id: 69, title: 'Step sixty-nine', text: 'Placeholder content for layout testing.' },
+    { id: 70, title: 'Step seventy', text: 'Placeholder content for layout testing.' },
+    { id: 71, title: 'Step seventy-one', text: 'Placeholder content for layout testing.' },
+    { id: 72, title: 'Step seventy-two', text: 'Placeholder content for layout testing.' },
+    { id: 73, title: 'Step seventy-three', text: 'Placeholder content for layout testing.' },
+    { id: 74, title: 'Step seventy-four', text: 'Placeholder content for layout testing.' },
+    { id: 75, title: 'Step seventy-five', text: 'Placeholder content for layout testing.' },
+    { id: 76, title: 'Step seventy-six', text: 'Placeholder content for layout testing.' },
+    { id: 77, title: 'Step seventy-seven', text: 'Placeholder content for layout testing.' },
+    { id: 78, title: 'Step seventy-eight', text: 'Placeholder content for layout testing.' },
+    { id: 79, title: 'Step seventy-nine', text: 'Placeholder content for layout testing.' },
+    { id: 80, title: 'Step eighty', text: 'Placeholder content for layout testing.' },
+    { id: 81, title: 'Step eighty-one', text: 'Placeholder content for layout testing.' },
+    { id: 82, title: 'Step eighty-two', text: 'Placeholder content for layout testing.' },
+    { id: 83, title: 'Step eighty-three', text: 'Placeholder content for layout testing.' },
+    { id: 84, title: 'Step eighty-four', text: 'Placeholder content for layout testing.' },
+    { id: 85, title: 'Step eighty-five', text: 'Placeholder content for layout testing.' },
+    { id: 86, title: 'Step eighty-six', text: 'Placeholder content for layout testing.' },
+    { id: 87, title: 'Step eighty-seven', text: 'Placeholder content for layout testing.' },
+    { id: 88, title: 'Step eighty-eight', text: 'Placeholder content for layout testing.' },
+    { id: 89, title: 'Step eighty-nine', text: 'Placeholder content for layout testing.' },
+    { id: 90, title: 'Step ninety', text: 'Placeholder content for layout testing.' },
+    { id: 91, title: 'Step ninety-one', text: 'Placeholder content for layout testing.' },
+    { id: 92, title: 'Step ninety-two', text: 'Placeholder content for layout testing.' },
+    { id: 93, title: 'Step ninety-three', text: 'Placeholder content for layout testing.' },
+    { id: 94, title: 'Step ninety-four', text: 'Placeholder content for layout testing.' },
+    { id: 95, title: 'Step ninety-five', text: 'Placeholder content for layout testing.' },
+    { id: 96, title: 'Step ninety-six', text: 'Placeholder content for layout testing.' },
+    { id: 97, title: 'Step ninety-seven', text: 'Placeholder content for layout testing.' },
+    { id: 98, title: 'Step ninety-eight', text: 'Placeholder content for layout testing.' },
+    { id: 99, title: 'Step ninety-nine', text: 'Placeholder content for layout testing.' },
+    { id: 100, title: 'Step one hundred', text: 'Placeholder content for layout testing.' },
+    { id: 101, title: 'Step one hundred one', text: 'Placeholder content for layout testing.' },
+    { id: 102, title: 'Step one hundred two', text: 'Placeholder content for layout testing.' },
+    { id: 103, title: 'Step one hundred three', text: 'Placeholder content for layout testing.' },
+    { id: 104, title: 'Step one hundred four', text: 'Placeholder content for layout testing.' },
+    { id: 105, title: 'Step one hundred five', text: 'Placeholder content for layout testing.' },
+    { id: 106, title: 'Step one hundred six', text: 'Placeholder content for layout testing.' },
+    { id: 107, title: 'Step one hundred seven', text: 'Placeholder content for layout testing.' },
+    { id: 108, title: 'Step one hundred eight', text: 'Placeholder content for layout testing.' },
+    { id: 109, title: 'Step one hundred nine', text: 'Placeholder content for layout testing.' },
+    { id: 110, title: 'Step one hundred ten', text: 'Placeholder content for layout testing.' },
+    { id: 111, title: 'Step one hundred eleven', text: 'Placeholder content for layout testing.' },
+    { id: 112, title: 'Step one hundred twelve', text: 'Placeholder content for layout testing.' },
+    { id: 113, title: 'Step one hundred thirteen', text: 'Placeholder content for layout testing.' },
+    { id: 114, title: 'Step one hundred fourteen', text: 'Placeholder content for layout testing.' },
+    { id: 115, title: 'Step one hundred fifteen', text: 'Placeholder content for layout testing.' },
+    { id: 116, title: 'Step one hundred sixteen', text: 'Placeholder content for layout testing.' },
+    { id: 117, title: 'Step one hundred seventeen', text: 'Placeholder content for layout testing.' },
+    { id: 118, title: 'Step one hundred eighteen', text: 'Placeholder content for layout testing.' },
+    { id: 119, title: 'Step one hundred nineteen', text: 'Placeholder content for layout testing.' },
+    { id: 120, title: 'Step one hundred twenty', text: 'Placeholder content for layout testing.' }
+  ];
+
+  function renderSteps() {
+    var list = document.getElementById('steps-list');
+    if (!list) return;
+    var fragment = document.createDocumentFragment();
+    STEPS.forEach(function (step) {
+      var item = document.createElement('li');
+      item.textContent = step.id + '. ' + step.title + ' — ' + step.text;
+      fragment.appendChild(item);
+    });
+    list.appendChild(fragment);
+  }
+
+  function init() {
+    renderSteps();
+    form.addEventListener('submit', handleSubmit);
+    emailInput.addEventListener('focus', clearMessage);
+    passwordInput.addEventListener('focus', clearMessage);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>
+</body>
+</html>

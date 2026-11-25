@@ -17,4 +17,4 @@ WS-demo + WS-engine-delivery (kilo), WS-engine-security (opencode lead), WS-api-
 4. Demo video + submission by Nov 29.
 
 ## Blocked on humans (#2)
-AWS access type, Bedrock yes/no, official rules link, team leader/members, pilot sites.
+AWS: Educate account (unconfirmed which services; likely no IAM role creation → use existing LabRole). Bedrock: no. Still needed: official rules link, team leader/members, pilot sites.

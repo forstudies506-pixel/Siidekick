@@ -1,0 +1,200 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  Siidekick: HTTP API (Lambda + DynamoDB) plus a private static site fronted by
+  CloudFront. All resources are AWS free-tier friendly at demo traffic.
+  Bedrock is not used.
+
+Parameters:
+  CloudFrontDomain:
+    Type: String
+    Description: >
+      CloudFront domain name (e.g. d1234567890.cloudfront.net). Added to the
+      HttpApi CORS allow list so the dashboard can call the API.
+
+Resources:
+  # ------------------------------------------------------------------
+  # HTTP API (API Gateway HTTP API v2)
+  # ------------------------------------------------------------------
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Name: siidekick-api
+      Description: Siidekick scanning API
+      CorsConfiguration:
+        AllowOrigins:
+          - !Sub "https://${CloudFrontDomain}"
+          - "http://localhost:5173"
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        AllowHeaders:
+          - content-type
+        AllowCredentials: false
+        MaxAge: 300
+
+  # ------------------------------------------------------------------
+  # Lambda: pure router + local adapter, engine source inlined by esbuild
+  # ------------------------------------------------------------------
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: siidekick-api
+      Description: Siidekick HTTP API
+      CodeUri: ../apps/api/dist
+      Handler: lambda.handler
+      Runtime: nodejs22.x
+      Architectures:
+        - arm64
+      MemorySize: 512
+      Timeout: 30
+      Environment:
+        Variables:
+          STORAGE: dynamo
+          TABLE_NAME: !Ref ScansTable
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:GetItem
+                - dynamodb:UpdateItem
+                - dynamodb:DeleteItem
+              Resource: !GetAtt ScansTable.Arn
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+
+  # ------------------------------------------------------------------
+  # DynamoDB: scan records, TTL after 7 days via expiresAt
+  # ------------------------------------------------------------------
+  ScansTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: siidekick-scans
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+
+  # ------------------------------------------------------------------
+  # S3: private bucket holding the web build
+  # ------------------------------------------------------------------
+  WebBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "siidekick-web-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+
+  # ------------------------------------------------------------------
+  # CloudFront Origin Access Control (OAC) for the S3 origin
+  # ------------------------------------------------------------------
+  OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: siidekick-s3-oac
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Join ["", [!GetAtt WebBucket.Arn, "/*"]]
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !GetAtt CloudFrontDistribution.Arn
+
+  # ------------------------------------------------------------------
+  # CloudFront: SPA site + /api/* -> HttpApi
+  # ------------------------------------------------------------------
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: Siidekick static site and API
+        Enabled: true
+        DefaultRootObject: index.html
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt WebBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt OriginAccessControl.Id
+          - Id: ApiOrigin
+            DomainName: !Sub "${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols:
+                - TLSv1.2
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+          CachedMethods:
+            - GET
+            - HEAD
+          Compress: true
+        CacheBehaviors:
+          - PathPattern: /api/*
+            TargetOriginId: ApiOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods:
+              - GET
+              - HEAD
+              - POST
+              - OPTIONS
+            CachedMethods:
+              - GET
+              - HEAD
+            ForwardedValues:
+              QueryString: true
+              Headers:
+                - content-type
+              Cookies:
+                Forward: none
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway HTTP API endpoint
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+  SiteUrl:
+    Description: CloudFront site URL
+    Value: !GetAtt CloudFrontDistribution.DomainName
+  BucketName:
+    Description: S3 bucket for the web build
+    Value: !Ref WebBucket
