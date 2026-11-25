@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { registry, type ScanReport, type CheckResult, type RepoSnapshot } from "@siidekick/engine";
-import { makeRouter } from "../src/router.js";
+import { cachedOsvFetch, makeRouter } from "../src/router.js";
 import { createStore } from "../src/store.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -250,5 +250,48 @@ describe("router", () => {
       expect(verdict["sqli-dump"]).toBe("still-open");
       expect(JSON.stringify(body)).not.toMatch(/password123|welcome2024|fest2025|pk_demo_/);
     }, 30_000);
+  });
+});
+
+describe("cachedOsvFetch", () => {
+  const BATCH = "https://api.osv.dev/v1/querybatch";
+  function counting(status = 200) {
+    const calls: string[] = [];
+    const inner = (async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      return new Response(JSON.stringify({ n: calls.length }), { status, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    return { calls, inner };
+  }
+
+  it("answers a repeated OSV query from the cache, with a readable body each time", async () => {
+    const { calls, inner } = counting();
+    const f = cachedOsvFetch(inner);
+    const a = await f(BATCH, { method: "POST", body: '{"queries":[1]}' });
+    const b = await f(BATCH, { method: "POST", body: '{"queries":[1]}' });
+    expect(await a.json()).toEqual({ n: 1 });
+    expect(await b.json()).toEqual({ n: 1 });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("keys on the request body, expires entries, and never caches failures or other hosts", async () => {
+    let t = 0;
+    const { calls, inner } = counting();
+    const f = cachedOsvFetch(inner, () => t);
+    await f(BATCH, { method: "POST", body: "a" });
+    await f(BATCH, { method: "POST", body: "b" });
+    expect(calls).toHaveLength(2);
+    t = 11 * 60_000;
+    await f(BATCH, { method: "POST", body: "a" });
+    expect(calls).toHaveLength(3);
+    await f("https://api.github.com/x");
+    await f("https://api.github.com/x");
+    expect(calls).toHaveLength(5);
+
+    const failing = counting(503);
+    const g = cachedOsvFetch(failing.inner);
+    await g(BATCH, { method: "POST", body: "a" });
+    await g(BATCH, { method: "POST", body: "a" });
+    expect(failing.calls).toHaveLength(2);
   });
 });

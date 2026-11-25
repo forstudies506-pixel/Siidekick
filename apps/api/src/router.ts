@@ -18,6 +18,7 @@ import * as z from "zod";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 import { createStore, RecordTooLargeError, type Store, type ScanRecord } from "./store.js";
 import { fetchGithubRepo, GithubError } from "./github.js";
 
@@ -97,6 +98,32 @@ function matchPath(pattern: string, pathname: string): Record<string, string> | 
   return params;
 }
 
+const OSV_HOST = "api.osv.dev";
+// Every approve rescans the whole repo, and OSV's answer for the same query does not change within minutes.
+const OSV_TTL_MS = 10 * 60_000;
+const OSV_MAX_ENTRIES = 500;
+
+/** Wraps fetch so identical OSV.dev requests reuse a recent successful answer. Other hosts pass straight through. */
+export function cachedOsvFetch(inner: typeof fetch, now: () => number = Date.now): typeof fetch {
+  const cache = new Map<string, { at: number; status: number; type: string; body: string }>();
+  const replay = (e: { status: number; type: string; body: string }) => new Response(e.body, { status: e.status, headers: { "content-type": e.type } });
+  return async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const reqBody = init?.body ?? "";
+    if (new URL(url).host !== OSV_HOST || typeof reqBody !== "string") return inner(input, init);
+    const key = createHash("sha256").update(`${init?.method ?? "GET"} ${url}\n${reqBody}`).digest("hex");
+    const hit = cache.get(key);
+    if (hit && now() - hit.at < OSV_TTL_MS) return replay(hit);
+    const res = await inner(input, init);
+    if (!res.ok) return res;
+    const entry = { at: now(), status: res.status, type: res.headers.get("content-type") ?? "application/json", body: await res.text() };
+    cache.delete(key);
+    if (cache.size >= OSV_MAX_ENTRIES) cache.delete(cache.keys().next().value as string);
+    cache.set(key, entry);
+    return replay(entry);
+  };
+}
+
 const DEMO_URL = new URL("./demoRepo.generated.json", import.meta.url);
 
 async function readDemoRepo(): Promise<RepoSnapshot> {
@@ -115,13 +142,14 @@ function defaultReplayRuntime(): string | null {
 
 export function makeRouter(deps: { store: Store; fetch?: typeof fetch; replayRuntime?: string }) {
   const store = deps.store;
+  const scanFetch = cachedOsvFetch(deps.fetch ?? fetch);
 
   async function healthHandler(): Promise<{ status: number; body: unknown }> {
     return { status: 200, body: { ok: true, checks: registry.length } };
   }
 
   async function saveScan(repo: RepoSnapshot, demo = false): Promise<{ status: number; body: unknown }> {
-    const report: ScanReport = await runScan({ repo, fetch: deps.fetch ?? fetch }, registry);
+    const report: ScanReport = await runScan({ repo, fetch: scanFetch }, registry);
     const id = crypto.randomUUID();
     const record: ScanRecord = { id, createdAt: new Date().toISOString(), repo, report, ...(demo ? { demo: true as const } : {}) };
     await store.put(id, record);
@@ -179,7 +207,7 @@ export function makeRouter(deps: { store: Store; fetch?: typeof fetch; replayRun
       if (!result || result.passed || !check.fix) continue;
       let patch: Patch | null;
       try {
-        patch = await check.fix({ repo: current, fetch: deps.fetch ?? fetch }, result.findings);
+        patch = await check.fix({ repo: current, fetch: scanFetch }, result.findings);
       } catch (err) {
         // A crashing fixer is that check's problem; skip it and keep applying the rest.
         console.error(`check ${check.id} fix threw:`, err);
@@ -196,7 +224,7 @@ export function makeRouter(deps: { store: Store; fetch?: typeof fetch; replayRun
       }
     }
 
-    const afterReport: ScanReport = await runScan({ repo: current, fetch: deps.fetch ?? fetch }, registry);
+    const afterReport: ScanReport = await runScan({ repo: current, fetch: scanFetch }, registry);
     const status: "rescan-clean" | "partial" = afterReport.passed === afterReport.total ? "rescan-clean" : "partial";
 
     const updated: ScanRecord = {
@@ -233,7 +261,7 @@ export function makeRouter(deps: { store: Store; fetch?: typeof fetch; replayRun
       if (!result || result.passed || !check.fix) continue;
       let patch: Patch | null;
       try {
-        patch = await check.fix({ repo: current, fetch: deps.fetch ?? fetch }, result.findings);
+        patch = await check.fix({ repo: current, fetch: scanFetch }, result.findings);
       } catch {
         continue;
       }
@@ -256,7 +284,7 @@ export function makeRouter(deps: { store: Store; fetch?: typeof fetch; replayRun
     patch.approved = true;
     const approved = patches.filter((p) => p.approved).map((p) => p.patchId);
     await store.put(params.id, record);
-    const rescan = await runScan({ repo: (await approvedSnapshot(record)).snapshot, fetch: deps.fetch ?? fetch }, registry);
+    const rescan = await runScan({ repo: (await approvedSnapshot(record)).snapshot, fetch: scanFetch }, registry);
     return { status: 200, body: { approved, score: rescan.score, passed: rescan.passed, total: rescan.total } };
   }
 

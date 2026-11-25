@@ -244,6 +244,7 @@ function PatchCard({
   tamperable,
   approved,
   pending,
+  locked,
   onApprove,
 }: {
   entry: PatchEntry;
@@ -251,6 +252,8 @@ function PatchCard({
   tamperable: boolean;
   approved: boolean;
   pending: boolean;
+  /** Another patch is being approved. Each approve rewrites the whole scan record, so two at once could drop one. */
+  locked: boolean;
   onApprove: () => void;
 }) {
   const { patch, guard, diff } = entry;
@@ -305,7 +308,7 @@ function PatchCard({
         ))}
       </div>
       <div className="patch-actions">
-        <button className="button approve" disabled={!guard.ok || approved || pending} onClick={onApprove}>
+        <button className="button approve" disabled={!guard.ok || approved || pending || locked} onClick={onApprove}>
           {label}
         </button>
         {tamper && !tamperState.result && (
@@ -600,6 +603,7 @@ export function Dashboard() {
   }
 
   async function handleApprove(patchId: string) {
+    if (approving) return;
     setApproving(patchId);
     setError("");
     try {
@@ -791,6 +795,7 @@ export function Dashboard() {
                   tamperable={entry.patch.id === tamperId}
                   approved={approved.includes(entry.patch.id)}
                   pending={approving === entry.patch.id}
+                  locked={approving !== ""}
                   onApprove={() => handleApprove(entry.patch.id)}
                 />
               ))}
