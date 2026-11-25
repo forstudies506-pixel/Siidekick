@@ -119,9 +119,10 @@ function stripTopDir(path: string): string {
   return idx < 0 ? "" : path.slice(idx + 1);
 }
 
-function parseTar(tar: Buffer): RepoSnapshot["files"] {
+function parseTar(tar: Buffer): { files: RepoSnapshot["files"]; omitted: number } {
   const files: RepoSnapshot["files"] = [];
   let total = 0;
+  let omitted = 0;
   let pendingPaxPath: string | null = null;
   let zeroBlocks = 0;
   let off = 0;
@@ -160,11 +161,14 @@ function parseTar(tar: Buffer): RepoSnapshot["files"] {
         const content = tar.subarray(dataStart, dataEnd);
         if (content.length <= MAX_FILE_BYTES && !content.subarray(0, 8192).includes(0)) {
           const text = content.toString("utf8");
-          total += Buffer.byteLength(text, "utf8");
-          if (files.length + 1 > MAX_FILES || total > MAX_TOTAL_BYTES) {
-            throw new GithubError("repo too large: over 500 files or 2 MB of text");
+          const bytes = Buffer.byteLength(text, "utf8");
+          // Past the caps, keep reading so the count is exact, but keep no more text.
+          if (files.length >= MAX_FILES || total + bytes > MAX_TOTAL_BYTES) {
+            omitted++;
+          } else {
+            total += bytes;
+            files.push({ path: rel, content: text });
           }
-          files.push({ path: rel, content: text });
         }
       }
       pendingPaxPath = null;
@@ -175,13 +179,13 @@ function parseTar(tar: Buffer): RepoSnapshot["files"] {
     off = next;
   }
 
-  return files;
+  return { files, omitted };
 }
 
 export async function fetchGithubRepo(
   input: string,
   deps?: { fetch?: typeof fetch },
-): Promise<RepoSnapshot> {
+): Promise<RepoSnapshot & { omitted: number }> {
   const parsed = parseGithubUrl(input);
   if (!parsed) throw new GithubError("not a valid public GitHub repo URL");
   const { owner, repo, ref } = parsed;
@@ -204,6 +208,6 @@ export async function fetchGithubRepo(
     throw new GithubError("repo too large");
   }
 
-  const files = parseTar(tar);
-  return { name: `${owner}/${repo}`, files };
+  const { files, omitted } = parseTar(tar);
+  return { name: `${owner}/${repo}`, files, omitted };
 }

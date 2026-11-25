@@ -152,12 +152,19 @@ export function makeRouter(deps: { store: Store; fetch?: typeof fetch; replayRun
     return { status: 200, body: { ok: true, checks: registry.length } };
   }
 
-  async function saveScan(repo: RepoSnapshot, demo = false): Promise<{ status: number; body: unknown }> {
+  async function saveScan(repo: RepoSnapshot, demo = false, omitted = 0): Promise<{ status: number; body: unknown }> {
     const report: ScanReport = await runScan({ repo, fetch: scanFetch }, registry);
     const id = crypto.randomUUID();
-    const record: ScanRecord = { id, createdAt: new Date().toISOString(), repo, report, ...(demo ? { demo: true as const } : {}) };
+    const record: ScanRecord = {
+      id,
+      createdAt: new Date().toISOString(),
+      repo,
+      report,
+      ...(demo ? { demo: true as const } : {}),
+      ...(omitted > 0 ? { omitted } : {}),
+    };
     await store.put(id, record);
-    return { status: 201, body: { id, report } };
+    return { status: 201, body: { id, report, ...(omitted > 0 ? { omitted } : {}) } };
   }
 
   async function createScanHandler(_params: Record<string, string>, body: unknown): Promise<{ status: number; body: unknown }> {
@@ -174,7 +181,8 @@ export function makeRouter(deps: { store: Store; fetch?: typeof fetch; replayRun
     const parsed = githubBodySchema.safeParse(body);
     if (!parsed.success) return { status: 400, body: { error: "invalid request body" } };
     try {
-      return await saveScan(await fetchGithubRepo(parsed.data.url, { fetch: deps.fetch }));
+      const { omitted, ...repo } = await fetchGithubRepo(parsed.data.url, { fetch: deps.fetch });
+      return await saveScan(repo, false, omitted);
     } catch (err) {
       if (err instanceof GithubError) return { status: 400, body: { error: err.message } };
       throw err;
@@ -187,7 +195,7 @@ export function makeRouter(deps: { store: Store; fetch?: typeof fetch; replayRun
     if (!record) return { status: 404, body: { error: "not found" } };
     return {
       status: 200,
-      body: { id: record.id, report: record.report, patches: record.patches, after: record.after },
+      body: { id: record.id, report: record.report, patches: record.patches, after: record.after, omitted: record.omitted },
     };
   }
 

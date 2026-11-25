@@ -25,6 +25,8 @@ export interface ScanRecord {
   snapshotAfter?: RepoSnapshot;
   // Set only by POST /api/scans/demo. Attack replay runs on records with this flag and nothing else.
   demo?: true;
+  // Text files left out of a GitHub repo past the size caps; the report covers the rest.
+  omitted?: number;
 }
 
 export interface Store {

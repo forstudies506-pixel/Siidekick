@@ -19,6 +19,8 @@ export interface ScanResponse {
   id: string;
   report: ScanReport;
   mock: boolean;
+  /** Text files of a big GitHub repo left out past the size caps. */
+  omitted?: number;
 }
 
 export interface PatchResponse {
@@ -35,9 +37,10 @@ export interface DownloadResponse {
 
 class ApiUnavailable extends Error {}
 
-// Once a scan is created from mock data, every later call for that session stays on mock data.
-// A scan that started on the real API never switches to mock: its failures are shown as errors.
+// Sample data only when the build asks for it (VITE_MOCK=1). A real build never falls back to it:
+// an offline server is shown as an error, so a result on screen is always a real scan.
 let mockSession = import.meta.env.VITE_MOCK === "1";
+const OFFLINE = "The scan server is not running. Start it with: npm run dev -w apps/api";
 const mockApproved = new Set<string>();
 
 export function isMockSession() {
@@ -75,16 +78,14 @@ const validDownload = (v: unknown) => isObj(v) && Array.isArray(v.files);
 
 async function createScan(path: string, init: RequestInit, name: string): Promise<ScanResponse> {
   mockApproved.clear();
-  if (!mockSession) {
-    try {
-      const r = await request<Omit<ScanResponse, "mock">>(path, init, validScan);
-      return { ...r, mock: false };
-    } catch (e) {
-      if (!(e instanceof ApiUnavailable)) throw e;
-      mockSession = true;
-    }
+  if (mockSession) return createMockScan(name);
+  try {
+    const r = await request<Omit<ScanResponse, "mock">>(path, init, validScan);
+    return { ...r, mock: false };
+  } catch (e) {
+    if (e instanceof ApiUnavailable) throw new Error(OFFLINE);
+    throw e;
   }
-  return createMockScan(name);
 }
 
 export function createDemoScan(): Promise<ScanResponse> {
@@ -99,7 +100,7 @@ export function uploadScan(name: string, files: RepoFile[]): Promise<ScanRespons
   );
 }
 
-// A GitHub scan only works on the real API: the mock has no copy of someone else's repo.
+// A GitHub scan only works on the real API: sample data has no copy of someone else's repo.
 export async function githubScan(url: string): Promise<ScanResponse> {
   mockApproved.clear();
   try {
@@ -111,7 +112,7 @@ export async function githubScan(url: string): Promise<ScanResponse> {
     mockSession = false;
     return { ...r, mock: false };
   } catch (e) {
-    if (e instanceof ApiUnavailable) throw new Error("The scan server is offline, so GitHub repos cannot be fetched. Try the demo shop.");
+    if (e instanceof ApiUnavailable) throw new Error(OFFLINE);
     throw e;
   }
 }
