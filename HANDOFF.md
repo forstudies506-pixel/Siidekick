@@ -29,7 +29,7 @@ _Updated 2026-11-26 (phase 7)._ Read `BRAIN.md`, `AGENTS.md`, then this.
 
 ## Known gaps
 - Stale local API on port 8787 (PID 30531) during dev; dev used 8790.
-- After approving all fixes, the summary still lists `jwt-misuse` and `input-validation` as failing (owner must verify tokens and wire `validate()`); `sql-string-concat` is report-only.
+- Demo shop after approving all 14 fixes: 2 → 59, 13/19 passing (same on localhost and live, 2026-11-26). Still failing: `jwt-misuse` (owner must verify tokens), `input-validation` (owner wires `validate()`), `client-exposed-secrets` (owner moves the key server-side), and the report-only `sql-string-concat`, `hallucinated-package`, `ui-heavy-animation`. Replay: 5 attacks blocked, SQLi still open.
 - `tools/siidekick-py/demo/vulnerable-shop/.env` is committed on purpose as a planted flaw for that demo (fake values).
 
 ## Next
