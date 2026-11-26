@@ -10,3 +10,5 @@ coverage/
 .worktrees/
 .serena/
 infra/.aws-sam/
+.vercel-deploy/
+.vercel/
