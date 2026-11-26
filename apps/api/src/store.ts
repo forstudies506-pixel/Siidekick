@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { createClient } from "redis";
 import type { RepoSnapshot, ScanReport, GuardResult, DiffLine, Patch } from "@siidekick/engine";
 
 export interface PatchEntry {
@@ -34,7 +35,7 @@ export interface ScanRecord {
 
 export interface Store {
   /** Which backend holds records; /api/health reports it so a deploy shows whether links survive. */
-  readonly kind: "local" | "dynamo" | "upstash";
+  readonly kind: "local" | "dynamo" | "upstash" | "redis";
   get(id: string): Promise<ScanRecord | null>;
   put(id: string, record: ScanRecord): Promise<void>;
 }
@@ -136,6 +137,68 @@ export function upstashEnv(): { url: string; token: string } | null {
   return url && token ? { url, token } : null;
 }
 
+// The free Redis Cloud database is 30 MB in all, so one record may take at most 1 MB of it.
+const MAX_REDIS_BYTES = 1_000_000;
+
+/** The two commands the Redis store uses; `createClient` from `redis` satisfies it, tests pass a fake. */
+export interface RedisLike {
+  get(key: string): Promise<string | null>;
+  set(key: string, value: string, opts: { expiration: { type: "EX"; value: number } }): Promise<unknown>;
+}
+
+/**
+ * Redis over its own TCP protocol (`redis://` or `rediss://`), for the Redis Cloud database the Vercel
+ * integration connects. Same record format and 7-day expiry as the Upstash store.
+ */
+export function createRedisStore(opts: { url: string; connect?: () => Promise<RedisLike> }): Store {
+  type Client = ReturnType<typeof newClient>;
+  const newClient = () =>
+    createClient({
+      url: opts.url,
+      disableOfflineQueue: true,
+      socket: { connectTimeout: 5000, reconnectStrategy: false },
+    });
+  let client: Client | null = null;
+  let pending: Promise<Client> | null = null;
+  // One socket per function instance, reused across requests; concurrent requests share one connect,
+  // since the free plan caps connections. A closed socket (instance frozen and thawed, server dropped
+  // it) is replaced rather than retried in the background.
+  const connect =
+    opts.connect ??
+    (() => {
+      if (client?.isReady) return Promise.resolve(client);
+      if (pending) return pending;
+      if (client?.isOpen) client.destroy();
+      const next = newClient();
+      // Without a listener a dropped socket would crash the process. The next request reconnects.
+      next.on("error", () => {});
+      pending = next
+        .connect()
+        .then(() => (client = next))
+        .finally(() => (pending = null));
+      return pending;
+    });
+  const key = (id: string) => `siidekick:scan:${id}`;
+  return {
+    kind: "redis",
+    async get(id: string): Promise<ScanRecord | null> {
+      const value = await (await connect()).get(key(id));
+      if (value == null) return null;
+      return JSON.parse(gunzipSync(Buffer.from(value, "base64")).toString("utf8")) as ScanRecord;
+    },
+    async put(id: string, record: ScanRecord): Promise<void> {
+      const value = gzipSync(JSON.stringify(record)).toString("base64");
+      if (value.length > MAX_REDIS_BYTES) throw new RecordTooLargeError("this repo is too large to store; try a smaller repo");
+      await (await connect()).set(key(id), value, { expiration: { type: "EX", value: TTL_SECONDS } });
+    },
+  };
+}
+
+/** `KV_REDIS_URL` is what the Vercel Redis integration sets with the `KV` prefix. */
+export function redisUrl(): string | null {
+  return process.env.KV_REDIS_URL || process.env.REDIS_URL || null;
+}
+
 /** Reads env at call time so tests can point STORAGE/DATA_DIR at a temp dir. */
 export function createStore(): Store {
   if (process.env.STORAGE === "dynamo") return createDynamoStore();
@@ -143,6 +206,11 @@ export function createStore(): Store {
     const env = upstashEnv();
     if (!env) throw new Error("UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are required when STORAGE=upstash");
     return createUpstashStore(env);
+  }
+  if (process.env.STORAGE === "redis") {
+    const url = redisUrl();
+    if (!url) throw new Error("KV_REDIS_URL or REDIS_URL is required when STORAGE=redis");
+    return createRedisStore({ url });
   }
   const base = process.env.DATA_DIR || join(process.cwd(), ".data");
   return createLocalStore(base);

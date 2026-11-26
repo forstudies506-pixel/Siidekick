@@ -1,10 +1,11 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { makeRouter } from "./router.js";
-import { createStore, upstashEnv } from "./store.js";
+import { createStore, redisUrl, upstashEnv } from "./store.js";
 
-// With Upstash configured, records outlive the function instance. Without it, a Vercel function may
-// only write to /tmp, and records live as long as the instance does.
+// With Upstash or Redis configured, records outlive the function instance. Without either, a Vercel
+// function may only write to /tmp, and records live as long as the instance does.
 if (!process.env.STORAGE && upstashEnv()) process.env.STORAGE = "upstash";
+if (!process.env.STORAGE && redisUrl()) process.env.STORAGE = "redis";
 process.env.DATA_DIR ??= "/tmp/siidekick";
 
 const router = makeRouter({ store: createStore() });

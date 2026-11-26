@@ -32,7 +32,7 @@ Add `--verify` (with `--out`) to run your own `npm test` after each patch; a pat
 - Live website scan, implemented and tested: paste any address and the server reads it passively (page, up to 8 same-origin scripts, the http redirect, security.txt, up to 4 source maps) and runs 16 site checks: HTTPS and TLS, HSTS, CSP, clickjacking, other headers, version leaks, cookies, CORS, mixed content, subresource integrity, forms, secrets in scripts, AI keys called from the browser, exposed source maps, security.txt. Private and reserved addresses are refused at connect time. No attack traffic, no login, the page body is not stored. Findings are a report only.
 - Dashboard extras: export the report as JSON or Markdown, copy a share link, search and filter findings, keyboard shortcuts (`/` search, `1`–`4` steps, `f` `p` `n` `a` filters, `Esc` clears the search), progress states while a scan runs.
 - CLI `fix --prove`: runs the attack replay against the patched demo shop on your machine (demo shop only).
-- Live: https://siidekick.ashforge.cv (Vercel, `scripts/deploy-vercel.sh --prod`). Scan records live in the function's `/tmp`, so a share link can stop working after the instance recycles.
+- Live: https://siidekick.ashforge.cv (Vercel, `scripts/deploy-vercel.sh --prod`). Scan records are kept 7 days in Redis (the free 30 MB Redis Cloud database from Vercel's integration), so share links survive the function instance recycling.
 - Not yet run: the AWS deploy (template and `scripts/deploy.sh` are ready). See `HANDOFF.md`.
 
 ## Docs

@@ -22,7 +22,7 @@ Each finding comes with an add-only patch. A diff guard refuses any patch that d
 - AWS build in the repo: Lambda + API Gateway + DynamoDB + S3/CloudFront via AWS SAM (`infra/template.yaml`). Not deployed yet; it needs the team's Learner Lab credentials.
 - CLI: `siidekick scan <dir>`, `siidekick fix <dir> --out <dir> --verify`, and `fix --prove` for the attack replay on the demo shop.
 
-Honest limits: the Vercel build keeps scan records in the function's `/tmp`, so a link can stop working after the instance recycles. The attack replay runs only on the bundled demo shop, never on uploaded code. SQL built from strings is reported, not auto-fixed.
+Honest limits: scan records are kept 7 days on a free 30 MB Redis database, so old share links expire. The attack replay runs only on the bundled demo shop, never on uploaded code. SQL built from strings is reported, not auto-fixed.
 
 ## Tech stack
 

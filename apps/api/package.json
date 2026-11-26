@@ -10,10 +10,18 @@
     "build:runtime": "echo \"module.exports=require('express')\" | esbuild --bundle --platform=node --target=node20 --format=cjs --minify --log-level=warning --outfile=dist/runtime/node_modules/express/index.js && mkdir -p dist/runtime/node_modules/lodash && cp \"$(node -p \"require.resolve('lodash/lodash.js')\")\" dist/runtime/node_modules/lodash/index.js"
   },
   "dependencies": {
-    "@siidekick/engine": "0.1.0",
-    "zod": "^4.0.0",
     "@aws-sdk/client-dynamodb": "^3.700.0",
-    "@aws-sdk/lib-dynamodb": "^3.700.0"
+    "@aws-sdk/lib-dynamodb": "^3.700.0",
+    "@siidekick/engine": "0.1.0",
+    "redis": "^6.4.0",
+    "zod": "^4.0.0"
   },
-  "devDependencies": { "@types/aws-lambda": "^8.10.145", "esbuild": "^0.25.0", "tsx": "^4.19.0", "vitest": "^4.0.0", "typescript": "^7.0.2", "@types/node": "^26.6.8" }
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@types/node": "^26.6.8",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.19.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.0.0"
+  }
 }

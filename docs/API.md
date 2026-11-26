@@ -5,7 +5,8 @@ Same router everywhere: `apps/api/src/router.ts` (`makeRouter`). Served by `loca
 Storage (`GET /api/health` reports which one as `storage`):
 
 - `STORAGE=upstash`: Upstash Redis over its REST API, records kept 7 days. Needs `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` (the `KV_REST_API_URL` / `KV_REST_API_TOKEN` names also work). The Vercel build picks it on its own when both are set.
-- `STORAGE=local` writes records to `DATA_DIR`. On Vercel without Upstash that is `/tmp/siidekick`, one copy per function instance, so a scan id can return 404 after the instance recycles.
+- `STORAGE=redis`: Redis over TCP (`redis://` or `rediss://`), records kept 7 days, at most 1 MB per record after gzip. Needs `KV_REDIS_URL` (set by the Vercel Redis integration with the `KV` prefix) or `REDIS_URL`. The Vercel build picks it when Upstash is not set. Live uses this.
+- `STORAGE=local` writes records to `DATA_DIR`. On Vercel without Upstash or Redis that is `/tmp/siidekick`, one copy per function instance, so a scan id can return 404 after the instance recycles.
 - `STORAGE=dynamo` (AWS build) keeps records 7 days.
 
 ## Endpoints

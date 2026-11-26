@@ -1,6 +1,6 @@
 import { describe, expect, it, afterEach } from "vitest";
 import { randomBytes } from "node:crypto";
-import { createStore, createUpstashStore, RecordTooLargeError, type ScanRecord } from "../src/store.js";
+import { createRedisStore, createStore, createUpstashStore, RecordTooLargeError, type RedisLike, type ScanRecord } from "../src/store.js";
 
 const URL_ = "https://example-db.upstash.io";
 const TOKEN = "test-" + "token-not-real";
@@ -36,6 +36,7 @@ afterEach(() => {
   delete process.env.STORAGE;
   delete process.env.UPSTASH_REDIS_REST_URL;
   delete process.env.UPSTASH_REDIS_REST_TOKEN;
+  delete process.env.KV_REDIS_URL;
 });
 
 describe("createUpstashStore", () => {
@@ -86,5 +87,67 @@ describe("createStore with STORAGE=upstash", () => {
     process.env.UPSTASH_REDIS_REST_URL = URL_;
     process.env.UPSTASH_REDIS_REST_TOKEN = TOKEN;
     expect(createStore().kind).toBe("upstash");
+  });
+});
+
+/** In-memory stand-in for a Redis connection: GET and SET with an expiry only. */
+function fakeRedis() {
+  const data = new Map<string, string>();
+  const sets: Array<{ key: string; opts: unknown }> = [];
+  let connects = 0;
+  const client: RedisLike = {
+    async get(key) {
+      return data.get(key) ?? null;
+    },
+    async set(key, value, opts) {
+      sets.push({ key, opts });
+      data.set(key, value);
+      return "OK";
+    },
+  };
+  return { data, sets, connect: async () => (connects++, client), connects: () => connects };
+}
+
+describe("createRedisStore", () => {
+  it("round-trips a record with a 7-day expiry", async () => {
+    const r = fakeRedis();
+    const store = createRedisStore({ url: "redis://example.invalid:6379", connect: r.connect });
+    const rec = record("console.log(1);\n");
+    await store.put(rec.id, rec);
+    expect(await store.get(rec.id)).toEqual(rec);
+    expect(r.sets[0]).toEqual({ key: `siidekick:scan:${rec.id}`, opts: { expiration: { type: "EX", value: 604800 } } });
+    expect(store.kind).toBe("redis");
+  });
+
+  it("returns null for an unknown id", async () => {
+    const r = fakeRedis();
+    const store = createRedisStore({ url: "redis://example.invalid:6379", connect: r.connect });
+    expect(await store.get("00000000-0000-4000-8000-000000000000")).toBeNull();
+  });
+
+  it("refuses a record past the 1 MB cap before connecting", async () => {
+    const r = fakeRedis();
+    const store = createRedisStore({ url: "redis://example.invalid:6379", connect: r.connect });
+    const rec = record(randomBytes(1_000_000).toString("base64"));
+    await expect(store.put(rec.id, rec)).rejects.toBeInstanceOf(RecordTooLargeError);
+    expect(r.connects()).toBe(0);
+  });
+
+  it("fails fast on an unreachable server", async () => {
+    const store = createRedisStore({ url: "redis://127.0.0.1:1" });
+    await expect(store.get("00000000-0000-4000-8000-000000000000")).rejects.toBeInstanceOf(Error);
+  });
+});
+
+describe("createStore with STORAGE=redis", () => {
+  it("needs the URL", () => {
+    process.env.STORAGE = "redis";
+    expect(() => createStore()).toThrow(/KV_REDIS_URL/);
+  });
+
+  it("builds the Redis store from KV_REDIS_URL without connecting", () => {
+    process.env.STORAGE = "redis";
+    process.env.KV_REDIS_URL = "redis://example.invalid:6379";
+    expect(createStore().kind).toBe("redis");
   });
 });
