@@ -2,18 +2,22 @@
 import { existsSync } from "node:fs";
 import { mkdir, readdir, symlink, unlink } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { applyPatch, GuardRejected } from "./apply.js";
 import { guardPatch } from "./diffGuard.js";
 import { loadRepo } from "./loadRepo.js";
 import { registry, runScan } from "./registry.js";
+import { replayDemo, sameFiles, type ReplayReport } from "./replay.js";
 import type { Patch } from "./types.js";
 import { patchArtifacts } from "./unifiedDiff.js";
 import { verifyPatches, writeRepo } from "./verify.js";
 
 const USAGE = `siidekick scan <dir> [--json]
-siidekick fix <dir> [--out <dir>] [--verify]
+siidekick fix <dir> [--out <dir>] [--verify] [--prove]
   dry run by default; --out writes a fixed copy (original untouched) with .siidekick/*.patch and SIIDEKICK_LOG.md
-  --verify (needs --out) runs your npm test before and after each patch and rolls back any patch that breaks it`;
+  --verify (needs --out) runs your npm test before and after each patch and rolls back any patch that breaks it
+  --prove boots the app before and after the patches and fires the same attacks at both.
+          It runs only on the bundled demo shop (demo/vulnerable-app), never on other code.`;
 
 async function main(argv: string[]): Promise<number> {
   const [cmd, dir, ...rest] = argv;
@@ -22,6 +26,25 @@ async function main(argv: string[]): Promise<number> {
     return 2;
   }
   const original = await loadRepo(resolve(dir));
+  const prove = cmd === "fix" && rest.includes("--prove");
+  let runtimeDir: string | null = null;
+  // Checked before any scan: --prove executes the app, so it must be byte-for-byte the shipped demo.
+  if (prove) {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const demoDir = findUp(here, (d) => join(d, "demo", "vulnerable-app"));
+    if (!demoDir || !sameFiles(original, await loadRepo(demoDir))) {
+      console.error("--prove runs attacks against a live copy of the app, so it only runs on the bundled demo shop (demo/vulnerable-app), unchanged. This folder is not that copy; nothing was run.");
+      return 2;
+    }
+    runtimeDir = findUp(here, (d) => {
+      const nm = join(d, "node_modules");
+      return existsSync(join(nm, "express")) && existsSync(join(nm, "lodash")) ? nm : null;
+    });
+    if (!runtimeDir) {
+      console.error("--prove needs express and lodash installed (run npm install at the repo root)");
+      return 2;
+    }
+  }
   let repo = original;
   const before = await runScan({ repo });
 
@@ -83,6 +106,7 @@ async function main(argv: string[]): Promise<number> {
   }
   const after = await runScan({ repo });
   console.log(`\nScore ${before.score} → ${after.score}  (${kept.length} patch(es), status: rescan-${after.passed === after.total ? "clean" : "partial"}, ${tests})`);
+  if (prove && runtimeDir) printReplay(await replayDemo({ before: original, after: repo, runtimeDir }));
   if (out) {
     await writeRepo({ name: repo.name, files: [...repo.files, ...patchArtifacts(original, kept)] }, resolve(out));
     console.log(`Fixed copy written to ${out} (see SIIDEKICK_LOG.md there)`);
@@ -102,6 +126,30 @@ async function linkNodeModules(src: string, out: string): Promise<string | null>
     }
     if (dirname(d) === d) return null;
   }
+}
+
+/** Walks up from `start` and returns the first non-null `probe(dir)`. */
+function findUp(start: string, probe: (dir: string) => string | null): string | null {
+  for (let d = start; ; d = dirname(d)) {
+    const hit = probe(d);
+    if (hit && existsSync(hit)) return hit;
+    if (dirname(d) === d) return null;
+  }
+}
+
+function printReplay(r: ReplayReport): void {
+  if (!r.available) {
+    console.log(`\nAttack replay: ${r.reason}`);
+    return;
+  }
+  console.log(`\nAttack replay (${r.ms} ms): the same requests against the app as scanned and as patched`);
+  for (const a of r.attacks) {
+    console.log(`  ${a.verdict.padEnd(14)} ${a.title}`);
+    console.log(`      before: ${a.before.detail}`);
+    console.log(`      after:  ${a.after.detail}${a.control ? `  (control: ${a.control.label} ${a.control.ok ? "ok" : "FAILED"})` : ""}`);
+  }
+  for (const p of r.paths) console.log(`  path ${p.openAfter ? "STILL OPEN" : "cut       "} ${p.title}${p.cutBy.length ? `  (${p.openAfter ? "needs" : "cut by"} ${p.cutBy.join(", ")})` : ""}`);
+  if (r.tests?.ran) console.log(`  patched app's own tests: ${r.tests.passed} passed, ${r.tests.failed} failed`);
 }
 
 function printReport(r: Awaited<ReturnType<typeof runScan>>): void {

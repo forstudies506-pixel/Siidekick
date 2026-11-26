@@ -378,6 +378,13 @@ export function attackPaths(receipts: AttackReceipt[], takeover: { before: boole
   });
 }
 
+/** True when both snapshots hold the same files with the same bytes. The name is ignored. */
+export function sameFiles(a: RepoSnapshot, b: RepoSnapshot): boolean {
+  if (a.files.length !== b.files.length) return false;
+  const other = new Map(b.files.map((f) => [f.path, f.content]));
+  return a.files.every((f) => other.get(f.path) === f.content);
+}
+
 /**
  * Boots `before` and `after` side by side from `runtimeDir` (a node_modules folder holding express and lodash),
  * replays every attack on both, and runs the patched app's own tests. Fails soft: when the app cannot boot
