@@ -1,8 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { makeRouter } from "./router.js";
-import { createStore } from "./store.js";
+import { createStore, upstashEnv } from "./store.js";
 
-// A Vercel function may only write to /tmp. Records live as long as the function instance does.
+// With Upstash configured, records outlive the function instance. Without it, a Vercel function may
+// only write to /tmp, and records live as long as the instance does.
+if (!process.env.STORAGE && upstashEnv()) process.env.STORAGE = "upstash";
 process.env.DATA_DIR ??= "/tmp/siidekick";
 
 const router = makeRouter({ store: createStore() });

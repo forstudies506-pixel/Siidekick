@@ -2,13 +2,17 @@
 
 Same router everywhere: `apps/api/src/router.ts` (`makeRouter`). Served by `local.ts` (node:http), `lambda.ts` (AWS) and `vercel.ts` (live at https://siidekick.ashforge.cv). All bodies are JSON. Errors are `{ "error": "<reason>" }`.
 
-Storage: `STORAGE=local` writes records to `DATA_DIR`. On Vercel that is `/tmp/siidekick`, one copy per function instance, so a scan id can return 404 after the instance recycles. `STORAGE=dynamo` (AWS build) keeps records 7 days.
+Storage (`GET /api/health` reports which one as `storage`):
+
+- `STORAGE=upstash`: Upstash Redis over its REST API, records kept 7 days. Needs `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` (the `KV_REST_API_URL` / `KV_REST_API_TOKEN` names also work). The Vercel build picks it on its own when both are set.
+- `STORAGE=local` writes records to `DATA_DIR`. On Vercel without Upstash that is `/tmp/siidekick`, one copy per function instance, so a scan id can return 404 after the instance recycles.
+- `STORAGE=dynamo` (AWS build) keeps records 7 days.
 
 ## Endpoints
 
 | Method and path | Body | Answer |
 |---|---|---|
-| `GET /api/health` | none | `{ ok: true, checks }` |
+| `GET /api/health` | none | `{ ok: true, checks, storage }` |
 | `GET /api/checks` | none | `{ repo: CheckInfo[], site: CheckInfo[] }`, read from the engine registry. Today 19 repo and 16 site checks |
 | `POST /api/sites` | `{ url }` (1 to 2048 chars) | `201 { id, report, kind: "site", site: { url, finalUrl, fetchedAt } }` |
 | `POST /api/scans` | `{ name, files: [{ path, content }] }` | `201 { id, report }`. At most 500 files and 2 MB; paths relative POSIX, no `..`, no NUL |

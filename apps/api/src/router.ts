@@ -159,7 +159,7 @@ export function makeRouter(deps: {
   const scanFetch = cachedScanFetch(deps.fetch ?? fetch);
 
   async function healthHandler(): Promise<{ status: number; body: unknown }> {
-    return { status: 200, body: { ok: true, checks: registry.length } };
+    return { status: 200, body: { ok: true, checks: registry.length, storage: store.kind } };
   }
 
   /** The live check list, so the site never shows a hand-copied one that drifts from the engine. */

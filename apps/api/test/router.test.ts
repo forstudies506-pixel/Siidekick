@@ -34,7 +34,7 @@ describe("router", () => {
   it("health returns ok and check count", async () => {
     const res = await router.handle({ method: "GET", path: "/api/health" });
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ ok: true, checks: registry.length });
+    expect(res.body).toMatchObject({ ok: true, checks: registry.length, storage: "local" });
   });
 
   it("creates a scan; hardcoded key makes secrets-in-repo fail", async () => {

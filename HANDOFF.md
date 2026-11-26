@@ -22,7 +22,7 @@ _Updated 2026-11-26 (phase 7)._ Read `BRAIN.md`, `AGENTS.md`, then this.
 
 ## Not done
 - Demo video, and the TODO(team) fields in `docs/pitch/SUBMISSION.md` (video link, team names).
-- Vercel keeps scan records in `/tmp` per instance: links can 404 after a recycle. A durable store (Upstash Redis or Vercel Blob, free tiers) needs the user's yes.
+- Durable scan store: `STORAGE=upstash` is built and tested (77 API tests; bundled handler checked against a fake Upstash). Live still uses `/tmp` until the Upstash env vars are set in Vercel and it is redeployed; `GET /api/health` shows `storage`.
 - AWS: template prepared (`sam validate --lint` passes), not yet deployed.
 - Hindi copy not checked by a native speaker.
 - Replay on Lambda is unverified: Node 22 runtime, writing the two shop copies to `/tmp`, spawning `node` children.
@@ -35,7 +35,7 @@ _Updated 2026-11-26 (phase 7)._ Read `BRAIN.md`, `AGENTS.md`, then this.
 ## Next
 1. Record the demo video (`docs/pitch/DEMO_SCRIPT.md`), fill TODO(team), submit by Nov 29 (`docs/pitch/SUBMISSION.md`).
 2. `scripts/deploy.sh` once `aws configure` has Learner Lab credentials (#2).
-3. Durable scan store for Vercel, if approved. Then P1 items in `docs/PLAN.md`: GitHub Action, badge.
+3. Turn on the Upstash store: add the env vars in Vercel, redeploy, check `/api/health` says `"storage":"upstash"`. Then P1 items in `docs/PLAN.md`: GitHub Action, badge.
 
 ## Blocked on humans (#2)
 AWS Educate account (which services are allowed is unconfirmed; use the existing LabRole). Bedrock: no. Still needed: the official rules link, the team leader and members, and pilot sites.
