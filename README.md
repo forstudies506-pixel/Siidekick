@@ -1,39 +1,114 @@
 # Siidekick
 
-Siidekick scans a small team's website repo, explains each security and reliability risk in plain words, and proposes small patches that **add** code (two narrow exceptions: a hardcoded key line is swapped for an environment variable, and a vulnerable version in `package.json` is bumped to the first fixed one). A diff guard rejects any patch that would delete other owner code. The owner approves each patch, then a rescan shows the score change.
+**Find the hole before an AI does.** Siidekick scans a website or a GitHub repo for the security mistakes AI-assisted attackers look for first, and the ones AI-written code tends to ship. It explains each one in plain words and proposes small fixes that **add** code. Nothing lands until the owner approves it.
 
-**We never replace your code.** It reduces risk; it does not make anything "unhackable".
+It reduces risk. It does not make anything "unhackable".
 
-Built for the Campus to Cloud Hackathon (AWS, Techfest 2026-27).
+Built for the Campus to Cloud Hackathon (AWS, Techfest 2026-27) for small shops, student teams and colleges with no security engineer.
 
-## Run it
+**Live:** https://siidekick.ashforge.cv · **Demo in one click:** https://siidekick.ashforge.cv/app?demo=1
+
+## What you can do
+
+- **Scan a website.** It is a passive read, the way a browser loads the page:
+  - TLS and HSTS
+  - CSP, clickjacking and other headers
+  - cookies, CORS and forms
+  - secrets and AI keys in page scripts
+  - mixed content, SRI, version leaks, source maps
+  - `security.txt`
+
+  It sends no attack traffic and does not store the page.
+- **Scan a public GitHub repo, a folder, or the demo shop.** It looks for:
+  - leaked secrets, unprotected admin routes, rate limiting
+  - headers, CORS, SQL built from strings, input validation
+  - vulnerable dependencies (via [OSV](https://osv.dev); only package names and versions are sent)
+  - **AI-era mistakes:**
+    - hallucinated packages
+    - server keys in browser code
+    - open Firebase or Supabase rules
+    - JWTs decoded but never verified
+- **Approve add-only fixes.** Each patch shows its diff and the diff guard's verdict. The guard refuses any patch that deletes or rewrites owner code. Two narrow exceptions are declared:
+  - a hardcoded key line is swapped for an environment variable
+  - a vulnerable version in `package.json` is bumped
+- **See it measured.** Each approval rescans the patched copy. On the demo shop, "Verify & ship" boots the shop as scanned and as patched. It fires the same live attacks at both copies, each with a control request showing real users still get through.
+- **Take it home.** You can download:
+  - a zip of the patched files
+  - one `.patch` per fix (`git apply -R` reverts it)
+  - `SIIDEKICK_LOG.md`
+  - a JSON or Markdown report
+  - a share link
+- **Use the हिन्दी toggle** for check titles and reasons.
+
+The full list of checks comes from the engine: `curl -s https://siidekick.ashforge.cv/api/checks`.
+
+## Run it locally
+
+Needs Node ≥ 20.
+
 ```bash
 npm install
-npm test
-npm run scan:demo                                      # scan the planted-flaw demo app
-npx tsx packages/engine/src/cli.ts fix demo/vulnerable-app --out /tmp/fixed
+npm test                                   # engine + API + demo shop tests
 ```
-`fix` is a dry run by default; `--out` writes a patched copy and leaves the original untouched.
 
-## Layout
-- `packages/engine`: checks, diff guard, scanner, CLI
-- `apps/api`: HTTP API (AWS Lambda + local server)
-- `apps/web`: landing page and dashboard
-- `demo/vulnerable-app`: demo shop with planted flaws
-- `infra`: AWS SAM template (Lambda, API Gateway, DynamoDB, S3, CloudFront)
+```bash
+npm run build -w @siidekick/engine         # once, and after engine changes: the dev API imports the built engine
+npm run dev -w @siidekick/api              # http://localhost:8787
+npm run dev -w @siidekick/web              # http://localhost:5173 → open /app or /app?demo=1
+```
 
-Add `--verify` (with `--out`) to run your own `npm test` after each patch; a patch that breaks your tests is rolled back. Every applied patch is saved as `.siidekick/<id>.patch` and listed in `SIIDEKICK_LOG.md` with its reason and a `git apply -R` revert command. Secrets are masked in those files.
+CLI:
 
-## Status
-- Implemented and tested: 19 checks (secrets, security headers, rate limit, open CORS, auth on admin routes, string-built SQL, dependency audit, input validation, firewall rules, incident playbook, README, CI, health endpoint, error handler, heavy UI animation, plus AI-era: hallucinated packages, server keys in browser code, open Firebase/Supabase rules, JWT misuse), diff guard, test-and-rollback, patch log, CLI, HTTP API. On the demo app the score goes from 2 to 59 via the CLI (14 patches, all guards OK). 3 checks are left for the owner: rewrite the SQL with `?` placeholders (report-only, the rewrite is shown), wire `validate()` into the route, and the login animation (report-only).
-- Dependency audit: sends only package names and versions to [OSV](https://osv.dev) (8 s timeout). Without a lockfile it audits the lowest version each `package.json` range allows. The bump target is re-checked against OSV up to 3 times so it does not land in a newer advisory. A bump is proven only after you run `npm install` and your tests.
-- Implemented and tested locally: a guided four-step dashboard on the real API. **Connect** (any public GitHub repo you may scan, a folder upload, or the demo shop) → **Findings** (each failing check with file, line and a plain reason, हिन्दी toggle; checks that do not apply are marked N/A and left out of the score) → **Fixes** (diff, guard verdict, tamper check, approve one or all) → **Verify & ship** (rescan-measured score, what still fails, zip of the approved changes). Nothing is hardcoded: every number comes from a scan. `npm run dev` in `apps/api` and `apps/web`, then open `/app` (or `/app?demo=1`).
-- Proof of fix, implemented and tested locally (demo shop only): after you approve fixes, the server boots two copies of the demo shop on localhost, one as scanned and one with your approved patches, fires five live attacks at both, plus a sixth check that reads the code for a hardcoded payment key. Each blocked attack comes with a check that a normal customer request still works. Attacks are chained into paths (for example: leaked passwords → log in as any customer), and the open path is marked "fix this one first". On the demo with all 12 patches approved: 5 of 6 attacks blocked, 1 of 2 paths closed, the shop's own tests pass 4/4. The SQL injection stays open on purpose, because no safe automatic patch exists, and the report says so. Uploaded and GitHub code is never run: the replay refuses every scan except the bundled demo.
-- Live website scan, implemented and tested: paste any address and the server reads it passively (page, up to 8 same-origin scripts, the http redirect, security.txt, up to 4 source maps) and runs 16 site checks: HTTPS and TLS, HSTS, CSP, clickjacking, other headers, version leaks, cookies, CORS, mixed content, subresource integrity, forms, secrets in scripts, AI keys called from the browser, exposed source maps, security.txt. Private and reserved addresses are refused at connect time. No attack traffic, no login, the page body is not stored. Findings are a report only.
-- Dashboard extras: export the report as JSON or Markdown, copy a share link, search and filter findings, keyboard shortcuts (`/` search, `1`–`4` steps, `f` `p` `n` `a` filters, `Esc` clears the search), progress states while a scan runs.
-- CLI `fix --prove`: runs the attack replay against the patched demo shop on your machine (demo shop only).
-- Live: https://siidekick.ashforge.cv (Vercel, `scripts/deploy-vercel.sh --prod`). Scan records are kept 7 days in Redis (the free 30 MB Redis Cloud database from Vercel's integration), so share links survive the function instance recycling.
-- Not yet run: the AWS deploy (template and `scripts/deploy.sh` are ready). See `HANDOFF.md`.
+```bash
+npm run scan:demo
+npx tsx packages/engine/src/cli.ts fix demo/vulnerable-app --out /tmp/fixed --verify --prove
+```
+
+- `fix` is a dry run unless you pass `--out`, which writes a patched copy and leaves the original untouched.
+- `--verify` runs your `npm test` after each patch and rolls back any patch that breaks it.
+- `--prove` runs the attack replay. It works on the demo shop only.
+
+## How it works
+
+```
+loadRepo → runScan (checks) → check.fix() → diff guard → apply → rescan → patch log / replay
+```
+
+| Part | What it does |
+|---|---|
+| `packages/engine` | Checks, diff guard, scanner, attack replay and CLI. |
+| `apps/api` | One router served by a local server, AWS Lambda and Vercel. |
+| `apps/web` | Vite + React: the landing page and the 4-step `/app`. |
+| `demo/vulnerable-app` | A shop with planted flaws, vulnerable on purpose. |
+| `infra` | AWS SAM: Lambda, API Gateway, DynamoDB, S3, CloudFront. |
+
+The full walkthrough is in [docs/TEAM_HANDOFF.md](docs/TEAM_HANDOFF.md#3-how-it-works).
+
+## Deploy
+
+| Target | State |
+|---|---|
+| Vercel | **Live**, via `bash scripts/deploy-vercel.sh --prod` (owner's account). Scan records are kept 7 days in Redis. |
+| AWS | **Prepared, not deployed.** `bash scripts/deploy.sh` with Learner Lab credentials; see [infra/README.md](infra/README.md). |
+
+## Honest limits
+
+- The attack replay runs only on the bundled demo shop. Uploaded or GitHub code is never run.
+- SQL built from strings is reported with the `?` rewrite shown, not auto-fixed.
+- A dependency bump counts as proven only after you run `npm install` and your tests.
+- Scan links expire after 7 days.
+- The Hindi copy has not been reviewed by a native speaker yet.
 
 ## Docs
-[ROADMAP](docs/ROADMAP.md) (full spec) · [IDEA](docs/IDEA.md) (pitch) · [PLAN](docs/PLAN.md) (3-day finish plan) · [BRAIN](BRAIN.md) (repo map) · [AGENTS](AGENTS.md) (team rules) · [HANDOFF](HANDOFF.md) (current state) · [API](docs/API.md) (HTTP endpoints) · [Pitch](docs/pitch/) (submission, demo script)
+
+| Doc | What it covers |
+|---|---|
+| [TEAM_HANDOFF](docs/TEAM_HANDOFF.md) | **Start here:** what works, current numbers, what's left. |
+| [ENGINEERING_LOG](docs/ENGINEERING_LOG.md) | What was built, commit by commit. |
+| [API](docs/API.md) | HTTP endpoints. |
+| [BRAIN](BRAIN.md) | Repo map. |
+| [AGENTS](AGENTS.md) | Team rules. |
+| [HANDOFF](HANDOFF.md) | Dev log for agent sessions. |
+| [PLAN](docs/PLAN.md) | The 3-day finish plan. |
+| [ROADMAP](docs/ROADMAP.md) | Full spec. |
+| [Pitch](docs/pitch/) | Submission and demo script. |

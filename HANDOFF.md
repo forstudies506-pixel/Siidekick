@@ -2,6 +2,8 @@
 
 _Updated 2026-11-26 (phase 8)._ Read `BRAIN.md`, `AGENTS.md`, then this.
 
+> **Teammates: start with [`docs/TEAM_HANDOFF.md`](docs/TEAM_HANDOFF.md)**. It covers the current numbers, how the app works and the remaining tasks. This file is the running dev log for agent sessions; numbers in older phases below (111 tests, 3 → 77, 12 patches) are historical. History by commit: [`docs/ENGINEERING_LOG.md`](docs/ENGINEERING_LOG.md).
+
 ## Done (tested)
 - Engine: 19 checks, diff guard, applier, CLI. `fix --out <dir> --verify` runs the owner's `npm test` after each patch and rolls back any patch that breaks it (local CLI only).
 - Audit trail: every approved patch is saved as `.siidekick/<id>.patch` (`git apply -R` reverts it), plus `SIIDEKICK_LOG.md`. Secrets are masked in patch files.
@@ -28,7 +30,7 @@ _Updated 2026-11-26 (phase 8)._ Read `BRAIN.md`, `AGENTS.md`, then this.
 - Replay on Lambda is unverified: Node 22 runtime, writing the two shop copies to `/tmp`, spawning `node` children.
 
 ## Known gaps
-- Stale local API on port 8787 (PID 30531) during dev; dev used 8790.
+- If port 8787 is taken locally, run the API with `PORT=8790` (see `docs/TEAM_HANDOFF.md` § 8).
 - Demo shop after approving all 14 fixes: 2 → 59, 13/19 passing (same on localhost and live, 2026-11-26). Still failing: `jwt-misuse` (owner must verify tokens), `input-validation` (owner wires `validate()`), `client-exposed-secrets` (owner moves the key server-side), and the report-only `sql-string-concat`, `hallucinated-package`, `ui-heavy-animation`. Replay: 5 attacks blocked, SQLi still open.
 - `tools/siidekick-py/demo/vulnerable-shop/.env` is committed on purpose as a planted flaw for that demo (fake values).
 

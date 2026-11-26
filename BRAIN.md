@@ -3,7 +3,7 @@
 Read this instead of searching. Fix any line you find wrong.
 
 ## What it is
-Siidekick: scans a web repo, explains risks, proposes template patches (additive, or minimal-edit with listed removals), a diff guard blocks deletion of owner code, owner approves, rescan scores it. The CLI can also test each patch and roll it back. Spec: `docs/ROADMAP.md`. Build plan: `docs/PLAN.md`. Team rules: `AGENTS.md`. Current state: `HANDOFF.md`.
+Siidekick: scans a web repo, explains risks, proposes template patches (additive, or minimal-edit with listed removals), a diff guard blocks deletion of owner code, owner approves, rescan scores it. The CLI can also test each patch and roll it back. Spec: `docs/ROADMAP.md`. Build plan: `docs/PLAN.md`. Team rules: `AGENTS.md`. Current state: `HANDOFF.md`. Teammate handoff (numbers, how it works, what is left): `docs/TEAM_HANDOFF.md`. Commit history: `docs/ENGINEERING_LOG.md`.
 
 ## Layout
 | Path | What | Status |
