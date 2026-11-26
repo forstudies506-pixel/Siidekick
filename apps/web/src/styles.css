@@ -460,6 +460,23 @@ main { max-width: 1280px; margin: 0 auto; }
 .scan-strip dt { color: var(--muted); font-family: "JetBrains Mono", monospace; font-size: 11px; text-transform: uppercase; }
 .scan-strip dd { margin: 4px 0 0; font-weight: 700; }
 .repo-name { font-family: "JetBrains Mono", monospace; overflow-wrap: anywhere; }
+.scan-actions { display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 8px; padding-left: 22px; border-left: 1px solid var(--surface-2); }
+.scan-actions .button { min-height: 34px; padding: 4px 12px; font-size: 13px; justify-content: center; }
+.copied-note { margin: 0; max-width: 200px; min-height: 0; color: var(--green); font-size: 12px; }
+.copied-note:empty { display: none; }
+.busy-bar { position: relative; max-width: 1280px; margin: 0 auto; height: 28px; display: flex; align-items: center; padding: 0 32px; overflow: hidden; color: var(--amber); font-family: "JetBrains Mono", monospace; font-size: 12px; }
+.busy-bar::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--amber), transparent) 0 0 / 40% 100% no-repeat;
+  animation: busy-sweep 1.2s ease-in-out infinite;
+}
+@keyframes busy-sweep { from { background-position: -40% 0; } to { background-position: 140% 0; } }
+@media (prefers-reduced-motion: reduce) { .busy-bar::before { animation: none; background: var(--amber); opacity: .6; } }
 .sev-counts { display: flex; flex-wrap: wrap; gap: 6px; }
 
 .state-box.error { display: flex; justify-content: space-between; align-items: center; gap: 16px; min-height: 0; text-align: left; }
@@ -546,6 +563,37 @@ main { max-width: 1280px; margin: 0 auto; }
 .count { min-width: 22px; padding: 1px 6px; border-radius: 999px; background: var(--surface-2); color: var(--ink); font-family: "JetBrains Mono", monospace; font-size: 11px; text-align: center; }
 .seg button[aria-pressed="true"] .count { background: var(--bg); color: var(--amber); }
 .hi-line { margin: 0 0 14px; color: var(--muted); }
+.search-box { position: relative; display: inline-flex; align-items: center; flex: 1 1 240px; max-width: 360px; }
+.search-box input {
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 40px 6px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+}
+.search-box input::placeholder { color: var(--muted); }
+.search-box input:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; border-color: transparent; }
+.search-box kbd { position: absolute; right: 10px; pointer-events: none; }
+kbd {
+  display: inline-block;
+  min-width: 20px;
+  padding: 1px 5px;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  color: var(--muted);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: center;
+}
+.keys-hint { margin: -6px 0 16px; color: var(--muted); font-size: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.keys-hint kbd + kbd { margin-left: -2px; }
+@media (hover: none) { .keys-hint, .search-box kbd { display: none; } }
 .finding-list, .findings-step .group { border: 1px solid var(--surface-2); border-radius: var(--radius); background: var(--surface); padding: 0 18px; }
 .findings-step .group { padding-top: 14px; margin-bottom: 18px; }
 .finding-list .finding-row:first-child, .findings-step .group .finding-row:first-of-type { border-top: 0; }
@@ -629,6 +677,8 @@ main { max-width: 1280px; margin: 0 auto; }
   .back-link { display: none; }
   .scan-strip { flex-direction: column; gap: 16px; padding: 16px; }
   .scan-strip .score-block { border-right: 0; padding-right: 0; border-bottom: 1px solid var(--surface-2); padding-bottom: 12px; width: 100%; }
+  .scan-actions { flex-direction: row; flex-wrap: wrap; justify-content: flex-start; padding-left: 0; border-left: 0; }
+  .busy-bar { padding: 0 18px; }
   .connect-main .repo-form { padding: 16px; }
   .step-head.with-actions, .step-cta, .manual-head { flex-direction: column; align-items: stretch; }
   .head-actions { flex-direction: column; }

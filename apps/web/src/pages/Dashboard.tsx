@@ -640,6 +640,54 @@ const isFailing = (r: CheckResult) => !r.passed && !r.skipped;
 const bySeverity = (a: CheckResult, b: CheckResult) => SEV_ORDER[a.severity] - SEV_ORDER[b.severity] || a.title.localeCompare(b.title);
 const rank = (r: CheckResult) => (isFailing(r) ? 0 : r.skipped ? 2 : 1);
 
+/** Search over what a row shows: title, id, and each finding's file, explanation and evidence. */
+function matches(r: CheckResult, q: string) {
+  if (!q) return true;
+  const hay = [r.title, r.checkId, r.group, r.severity, ...r.findings.flatMap((f) => [f.file ?? "", f.explanation, f.evidence ?? ""])];
+  return hay.join("\n").toLowerCase().includes(q);
+}
+
+const verdictOf = (r: CheckResult) => (r.skipped ? "n/a" : r.passed ? "pass" : "FAIL");
+
+function toMarkdown(report: Report, target: string, summary: ApprovedSummary | null) {
+  const out = [
+    `# Siidekick report: ${target}`,
+    "",
+    `Scanned ${report.startedAt}. Score **${report.score}/100**, ${report.passed} of ${report.total} applicable checks pass.`,
+  ];
+  if (summary) out.push(`With approved fixes: **${summary.score}/100**, ${summary.passed} of ${summary.total} pass.`);
+  out.push("", "| Verdict | Severity | Check |", "|---|---|---|");
+  for (const r of [...report.results].sort((a, b) => rank(a) - rank(b) || bySeverity(a, b))) {
+    out.push(`| ${verdictOf(r)} | ${r.severity} | ${r.title.replace(/\|/g, "\\|")} |`);
+  }
+  const failing = report.results.filter(isFailing).sort(bySeverity);
+  if (failing.length) out.push("", "## Failing checks");
+  for (const r of failing) {
+    out.push("", `### ${r.title} (${r.severity})`);
+    for (const f of r.findings) {
+      const where = f.file ? ` \`${f.file}${f.line ? `:${f.line}` : ""}\`` : "";
+      out.push("", `-${where} ${f.explanation}`);
+      if (f.remedy) out.push("", "  Fix:", "", "  ```", ...f.remedy.split("\n").map((l) => `  ${l}`), "  ```");
+    }
+  }
+  out.push("", "---", "Siidekick reduces risk. No tool can promise a site is unhackable.", "");
+  return out.join("\n");
+}
+
+function saveText(name: string, text: string, type: string) {
+  const href = URL.createObjectURL(new Blob([text], { type }));
+  const a = document.createElement("a");
+  a.href = href;
+  a.download = name;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 1000);
+}
+
+const isTyping = (el: EventTarget | null) =>
+  el instanceof HTMLElement && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+
 export function Dashboard() {
   const [step, setStep] = useState<Step>("connect");
   const [report, setReport] = useState<Report | null>(null);
@@ -664,7 +712,11 @@ export function Dashboard() {
   const [site, setSite] = useState<SiteInfo | null>(null);
   const [scanning, setScanning] = useState<Source>("github");
   const [downloading, setDownloading] = useState(false);
+  const [query, setQuery] = useState("");
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [copied, setCopied] = useState("");
   const folderInput = useRef<HTMLInputElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const genTried = useRef(false);
   const started = useRef(false);
@@ -722,6 +774,8 @@ export function Dashboard() {
       setSummary(null);
       setSelectedPatch("");
       setFilter(res.report.results.some(isFailing) ? "failing" : "all");
+      setQuery("");
+      setSourceUrl(source === "upload" ? "" : (url ?? ""));
       genTried.current = false;
       if (!res.mock) remember({ id: res.id, repo: res.report.repo, score: res.report.score, at: new Date().toISOString(), source, url });
       go("findings", res.id, res.mock, readUrl().demo);
@@ -760,6 +814,8 @@ export function Dashboard() {
       setSummary(stored.approvedSummary ?? null);
       setSelectedPatch("");
       setFilter(stored.report.results.some(isFailing) ? "failing" : "all");
+      setQuery("");
+      setSourceUrl(storedSite?.url ?? recent.find((r) => r.id === id)?.url ?? "");
       genTried.current = !!pr;
       go(storedSite ? "findings" : target === "verify" && !pr ? "fixes" : target, id, false, true);
     } catch (e) {
@@ -926,6 +982,69 @@ export function Dashboard() {
     go("connect", "", false);
   }
 
+  /** A link that reproduces this scan: the address rescans fresh, an upload reopens the stored record. */
+  function shareLink() {
+    const base = `${window.location.origin}/app`;
+    if (demo) return `${base}?demo=1`;
+    if (sourceUrl) return `${base}?url=${encodeURIComponent(sourceUrl)}`;
+    return scanId && !mock ? `${base}?scan=${encodeURIComponent(scanId)}` : "";
+  }
+
+  async function copyLink() {
+    const link = shareLink();
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(sourceUrl || demo ? "Link copied. Opening it runs a fresh scan." : "Link copied. It works while this server keeps the scan.");
+    } catch {
+      setCopied(`Copy this link: ${link}`);
+    }
+    setTimeout(() => setCopied(""), 4000);
+  }
+
+  function exportAs(kind: "json" | "md") {
+    if (!report) return;
+    const target = site ? site.finalUrl : report.repo;
+    const stem = `siidekick-${target.replace(/^https?:\/\//, "").replace(/[^\w.-]+/g, "-")}`;
+    if (kind === "md") saveText(`${stem}.md`, toMarkdown(report, target, summary), "text/markdown");
+    else {
+      const body = { tool: "siidekick", target, site: site ?? undefined, report, approvedFixes: approved, approvedSummary: summary ?? undefined };
+      saveText(`${stem}.json`, JSON.stringify(body, null, 2), "application/json");
+    }
+  }
+
+  // Keys: / search, 1–4 steps, f p n a filters, Esc clears the search. Never while typing in a field.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || isTyping(e.target)) {
+        if (e.key === "Escape" && e.target === searchInput.current) {
+          setQuery("");
+          searchInput.current?.blur();
+        }
+        return;
+      }
+      if (busy === "scan" || busy === "restore") return;
+      const n = Number(e.key);
+      if (n >= 1 && n <= STEPS.length) {
+        const target = STEPS[n - 1].id;
+        if (canOpen(target) && target !== step) go(target);
+        return;
+      }
+      if (!report) return;
+      if (e.key === "/") {
+        e.preventDefault();
+        if (step !== "findings") go("findings");
+        requestAnimationFrame(() => searchInput.current?.focus());
+        return;
+      }
+      if (step !== "findings") return;
+      const f = ({ f: "failing", p: "passed", n: "na", a: "all" } as const)[e.key];
+      if (f) setFilter(f);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   const results = report?.results ?? [];
   const failing = results.filter(isFailing);
   const passedList = results.filter((r) => r.passed && !r.skipped);
@@ -934,7 +1053,8 @@ export function Dashboard() {
   const patchedChecks = new Set(patches.map((e) => e.patch.checkId));
   const hasFix = (r: CheckResult) => (patchResult ? patchedChecks.has(r.checkId) : r.mode !== "report");
   const byFilter: Record<Filter, CheckResult[]> = { failing, passed: passedList, na: naList, all: results };
-  const shown = [...byFilter[filter]].sort((a, b) => rank(a) - rank(b) || bySeverity(a, b));
+  const q = query.trim().toLowerCase();
+  const shown = [...byFilter[filter]].filter((r) => matches(r, q)).sort((a, b) => rank(a) - rank(b) || bySeverity(a, b));
   const groups = (Object.keys(groupLabels) as CheckGroup[])
     .map((g) => ({ id: g, items: shown.filter((r) => r.group === g) }))
     .filter((g) => g.items.length > 0);
@@ -1012,6 +1132,11 @@ export function Dashboard() {
       <p className="visually-hidden" role="status">
         {statusText}
       </p>
+      {statusText && (
+        <div className="busy-bar" aria-hidden="true">
+          <span>{statusText}</span>
+        </div>
+      )}
 
       <main className="dashboard">
         {report && step !== "connect" && (
@@ -1053,6 +1178,22 @@ export function Dashboard() {
                 </div>
               ) : null}
             </dl>
+            <div className="scan-actions">
+              <button type="button" className="button secondary" onClick={() => exportAs("md")}>
+                Report .md
+              </button>
+              <button type="button" className="button secondary" onClick={() => exportAs("json")}>
+                Data .json
+              </button>
+              {shareLink() && (
+                <button type="button" className="button secondary" onClick={copyLink}>
+                  Copy link
+                </button>
+              )}
+              <p className="copied-note" role="status">
+                {copied}
+              </p>
+            </div>
           </section>
         )}
 
@@ -1225,6 +1366,17 @@ export function Dashboard() {
               </p>
             </div>
             <div className="toolbar">
+              <label className="search-box">
+                <span className="visually-hidden">Search checks</span>
+                <input
+                  ref={searchInput}
+                  type="search"
+                  placeholder="Search checks, files, evidence"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+                <kbd aria-hidden="true">/</kbd>
+              </label>
               <div className="seg" role="group" aria-label="Show">
                 {filterButtons.map((f) => (
                   <button key={f.id} type="button" aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}>
@@ -1249,13 +1401,16 @@ export function Dashboard() {
                 </button>
               </div>
             </div>
+            <p className="keys-hint" aria-hidden="true">
+              <kbd>/</kbd> search <kbd>f</kbd> <kbd>p</kbd> <kbd>n</kbd> <kbd>a</kbd> filter <kbd>1</kbd>–<kbd>4</kbd> steps <kbd>Esc</kbd> clear
+            </p>
             {lang === "hi" && (
               <p className="hi-line" lang="hi">
                 {report.total} {ui.hi.of} <strong>{report.passed}</strong> {ui.hi.checksPass}
               </p>
             )}
             {shown.length === 0 ? (
-              <p className="empty-state">Nothing here.</p>
+              <p className="empty-state">{q ? `No ${filter === "all" ? "" : `${filterButtons.find((f) => f.id === filter)?.label.toLowerCase()} `}checks match “${query.trim()}”.` : "Nothing here."}</p>
             ) : view === "severity" ? (
               <div className="finding-list">
                 {shown.map((r) => (

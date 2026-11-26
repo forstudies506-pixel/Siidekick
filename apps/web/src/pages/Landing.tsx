@@ -272,7 +272,7 @@ export function Landing() {
       <footer className="site-footer">
         <p className="limit-line">Siidekick reduces risk. No tool can promise a site is unhackable, and this one does not.</p>
         <div>
-          <span>Runs on AWS Lambda</span>
+          <span>Live on Vercel. AWS Lambda build in the repo.</span>
           <a href="https://github.com/forstudies506-pixel/Siidekick" target="_blank" rel="noreferrer">
             Source on GitHub <ArrowUpRight size={14} aria-hidden="true" />
           </a>

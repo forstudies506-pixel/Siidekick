@@ -50,7 +50,9 @@ class ApiUnavailable extends Error {}
 // Sample data only when the build asks for it (VITE_MOCK=1). A real build never falls back to it:
 // an offline server is shown as an error, so a result on screen is always a real scan.
 let mockSession = import.meta.env.VITE_MOCK === "1";
-const OFFLINE = "The scan server is not running. Start it with: npm run dev -w apps/api";
+const OFFLINE = import.meta.env.PROD
+  ? "The scan server did not answer. Try again in a moment."
+  : "The scan server is not running. Start it with: npm run dev -w apps/api";
 const mockApproved = new Set<string>();
 
 export function isMockSession() {
@@ -76,12 +78,16 @@ async function request<T>(path: string, init: RequestInit, valid: (v: unknown) =
   } catch {
     throw new ApiUnavailable("network");
   }
-  if (res.status >= 500) throw new ApiUnavailable(String(res.status));
   let body: unknown;
   try {
     body = await res.json();
   } catch {
     throw new ApiUnavailable("not json");
+  }
+  // A 5xx with a reason the server chose to say (a site that could not be reached) is shown as is.
+  if (res.status >= 500) {
+    if (isObj(body) && typeof body.error === "string" && body.error !== "internal") throw new Error(body.error);
+    throw new ApiUnavailable(String(res.status));
   }
   if (!res.ok) {
     const msg = isObj(body) && typeof body.error === "string" ? body.error : `request failed (${res.status})`;
