@@ -10,9 +10,11 @@ Siidekick is for Indian students, small shops and colleges that need plain-langu
 
 ## What it does
 
-Siidekick scans a small web repository and lists security or reliability findings. It proposes small patches, shows the diff and waits for owner approval. After approval, it rescans and reports the score change.
+Siidekick scans any live website passively (16 checks: TLS, headers, cookies, forms, scripts, AI keys called from the browser) or any public GitHub repo (19 checks, including the AI-era ones: hallucinated packages, server keys in the client bundle, open Firebase or Supabase rules, unverified login tokens). Each finding is explained in plain words.
 
-The patches can be downloaded with revert instructions. The local CLI can test an owner's patch and roll back if tests fail.
+For a repo it proposes add-only patches, shows the diff and waits for owner approval. After approval it rescans and reports the score change. On the demo shop it then boots the app before and after the patches and fires the same attacks at both, with a control request that proves real users still get through.
+
+The patches can be downloaded with revert instructions. The CLI can test an owner's patch and roll back if tests fail (`fix --verify`), and replay the attacks on the demo shop (`fix --prove`).
 
 ## Risk reduction
 
@@ -32,4 +34,4 @@ At demo traffic, these services use AWS free-tier allowances. DynamoDB records e
 
 ## What is next
 
-Phase 2 adds Django, Flask and PHP support, plus direct GitHub pull request mode. Later phases add scheduled rescans and score history, guided WAF setup and compliance reports.
+Phase 2 adds Django, Flask and PHP support, plus opening the approved fixes as a GitHub pull request. Later phases add scheduled rescans and score history, guided WAF setup and compliance reports.

@@ -6,38 +6,39 @@ Siidekick
 
 ## One-line pitch
 
-Plain-language repository scans with owner-approved, reversible patches.
+Find the hole before an AI does: scan any website or GitHub repo, get plain-language findings, approve add-only fixes, and watch the same attacks fail against the patched app.
 
 ## 150-word description
 
-Siidekick helps small teams understand and reduce web security risks. It scans a small repository, explains findings in plain language and proposes predictable patches for known checks. Every proposed change is shown before it is applied. The diff guard rejects patches that delete owner code or make unrelated edits, and the owner approves each patch separately.
+Attack tooling is now point-and-click, and AI-written code repeats the same mistakes. Siidekick is built for the small shops, student teams and colleges that face both without a security engineer.
 
-The product can rescan after fixes and show the score change. The download includes patched files, a unified diff for each approved patch and a log with a direct revert command. Patch verification runs the owner's test suite locally. Siidekick never runs uploaded code on the server.
+Paste a website address and Siidekick reads it passively, the way any browser does: TLS, headers, cookies, forms, scripts, and AI keys called from the browser. Paste a GitHub repo and it reads the code for leaked secrets, open endpoints, hallucinated packages, open Firebase or Supabase rules and unverified login tokens.
 
-The system uses a Lambda API behind API Gateway, DynamoDB for scan state and an S3 and CloudFront architecture for the private web application. It uses the AWS free-tier services available to a Learner Lab account and does not use Bedrock.
+Each finding comes with an add-only patch. A diff guard refuses any patch that deletes or rewrites owner code, and nothing lands until the owner approves it. The approved fixes are rescanned, and on the demo shop Siidekick boots the app before and after and fires the same attacks at both, with a control request proving real users still get through.
 
-The AWS deployment template is prepared; it is not yet deployed.
+## What is live
+
+- Web app: https://siidekick.ashforge.cv (Vercel). Scan any site or public GitHub repo; no sample data.
+- AWS build in the repo: Lambda + API Gateway + DynamoDB + S3/CloudFront via AWS SAM (`infra/template.yaml`). Not deployed yet; it needs the team's Learner Lab credentials.
+- CLI: `siidekick scan <dir>`, `siidekick fix <dir> --out <dir> --verify`, and `fix --prove` for the attack replay on the demo shop.
+
+Honest limits: the Vercel build keeps scan records in the function's `/tmp`, so a link can stop working after the instance recycles. The attack replay runs only on the bundled demo shop, never on uploaded code. SQL built from strings is reported, not auto-fixed.
 
 ## Tech stack
 
-- TypeScript
-- Node.js
-- React and Vite
-- AWS Lambda
-- Amazon API Gateway
-- Amazon DynamoDB
-- Amazon S3
-- Amazon CloudFront
-- AWS SAM
+- TypeScript, Node.js 22
+- React 19 and Vite
+- Vitest
+- Vercel (live), AWS SAM (prepared)
 
-## AWS services
+## AWS services (prepared build)
 
 - AWS Lambda
 - Amazon API Gateway HTTP API
-- Amazon DynamoDB
+- Amazon DynamoDB (records expire after seven days)
 - Amazon S3
 - Amazon CloudFront
-- AWS IAM / existing Learner Lab role
+- AWS IAM: the Learner Lab's existing LabRole. No Bedrock or other paid model service.
 
 ## Repo link
 

@@ -1,53 +1,51 @@
 # Siidekick 3-Minute Demo
 
+Record on https://siidekick.ashforge.cv. Open it once a minute before recording so the server is warm.
+
 ## 0:00-0:20 - Problem
 
-**Click:** Open the Siidekick dashboard.
+**Show:** The landing page.
 
-**Say:** “Small teams and student groups often ship websites without a security engineer. Small risks can sit in the repo for months.”
+**Say:** "AI can now find and exploit a website's mistakes in minutes, and AI-written code ships the same mistakes again and again. Small shops and student teams have no security engineer to catch them."
 
-## 0:20-0:45 - Load the demo
+## 0:20-0:50 - Scan any live website
 
-**Click:** Select the demo shop and run the scan, or call `/api/scans/demo` in the API.
+**Click:** Paste the team's own site (or one you have permission to show) into the box and press Scan.
 
-**Say:** “This demo represents a small web shop. Siidekick reads the repo and explains findings in plain language.”
+**Say:** "Siidekick reads the site the way any browser does. No login, no attack traffic. TLS, headers, cookies, forms, scripts, and whether the page calls an AI model with its key in plain view."
 
-## 0:45-1:10 - Findings
+**Click:** Press `f` to show only failing checks. Open one finding.
 
-**Click:** Open the findings list.
+**Say:** "Each one says what is wrong, why it matters, and the exact fix, in plain words."
 
-**Say:** “The findings have severity labels. Here are the highest-risk items and the reason each one matters.”
+## 0:50-1:15 - Scan a repo
 
-## 1:10-1:35 - Generate fixes
+**Click:** Back to the landing page. Click "Scan the demo shop" (or paste a public GitHub repo).
 
-**Click:** Generate patches for two findings.
+**Say:** "For code, it reads the repo file by file. These are the AI-era checks: a package name that does not exist, a server key shipped to the browser, Firebase rules left open, login tokens that are read but never verified."
 
-**Say:** “Siidekick creates small, predictable templates. It does not run uploaded code or invent changes by itself.”
+## 1:15-1:45 - Fixes and the guard
 
-## 1:35-2:00 - Diff and guard
+**Click:** Go to Fixes. Open one diff.
 
-**Click:** Open one patch diff. Show the addition and a blocked deletion, if available.
+**Say:** "Every fix only adds lines. The diff guard refuses any patch that deletes or rewrites your code, and nothing lands until you approve it."
 
-**Say:** “The owner can read exactly what changes. The diff guard rejects patches that delete owner code or replace a file outside the approved edit.”
+**Click:** Approve the patches one by one. Point to the score.
 
-## 2:00-2:15 - Approve and rescan
+**Say:** "Each approval rescans the patched copy, so the score is measured, not promised."
 
-**Click:** Approve the patches one by one (cut the video while each rescan runs) and point to the score.
+## 1:45-2:30 - Proof of fix
 
-**Say:** “Each patch needs separate approval. Siidekick applies only the approved changes, and the rescan shows the score change.”
+**Click:** Go to "Verify & ship" and press "Replay the attacks". Point to the path marked "Fix this one first", then to one receipt.
 
-## 2:15-2:45 - Proof of fix
+**Say:** "A score is still a claim. So Siidekick boots the shop twice, as scanned and as patched, and fires the same attacks at both. Five are blocked, and next to each is a control request showing a real customer still gets through. One still works: the SQL injection, because no safe automatic patch exists. That keeps the path to logging in as any customer open, so Siidekick says fix this one first. Risk reduced, not removed."
 
-**Click:** Replay the attacks. Point to the attack path marked “Fix this one first”, then to one receipt.
+## 2:30-2:45 - Take it home
 
-**Say:** “A score is a claim. So Siidekick boots the shop twice, as scanned and as patched, and fires the same attacks at both: five live requests and a check for a hardcoded key. Five are blocked, and next to each is a check that a real customer still gets through. One still works: the SQL injection, because no safe automatic patch exists. That keeps the path to logging in as any customer open, so Siidekick says fix this one first. Risk reduced, not removed.”
+**Click:** Export the report as Markdown, copy the share link, download the patched files.
 
-## 2:45-2:55 - Download
+**Say:** "You get the patched files, a patch file per fix, and a log with a one-line revert for each. The same engine runs as a CLI, and `fix --prove` replays the attacks on your machine."
 
-**Click:** Download the patched files.
+## 2:45-3:00 - AWS
 
-**Say:** “The download includes the patched files, unified patch files, and `SIIDEKICK_LOG.md`. The log gives a one-line revert for each approved patch.”
-
-## 2:55-3:00 - AWS architecture
-
-**Say:** “On AWS, API Gateway sends requests to Lambda, DynamoDB stores scan state, and S3 plus CloudFront serves the private web app.”
+**Say:** "It runs live today on Vercel. The AWS build is in the repo: API Gateway to Lambda, DynamoDB for scan records, S3 and CloudFront for the web app, all on the Learner Lab's free tier, no Bedrock."

@@ -1,6 +1,6 @@
 # HANDOFF.md
 
-_Updated 2026-11-26._ Read `BRAIN.md`, `AGENTS.md`, then this.
+_Updated 2026-11-26 (phase 7)._ Read `BRAIN.md`, `AGENTS.md`, then this.
 
 ## Done (tested)
 - Engine: 19 checks, diff guard, applier, CLI. `fix --out <dir> --verify` runs the owner's `npm test` after each patch and rolls back any patch that breaks it (local CLI only).
@@ -18,19 +18,24 @@ _Updated 2026-11-26._ Read `BRAIN.md`, `AGENTS.md`, then this.
 
 - Phase 5a/5b: checks that do not fit a repo (no server, serverless only, Python) are skipped with a reason and left out of the score; `serverShape()` in `util.ts` reads server kind from source. Real scans only (no canned results); GitHub repos past the caps are scanned in part with a warning instead of rejected.
 - Phase 6: **Guided dashboard, no hardcoding.** `/app` is a four-step flow (Connect → Findings → Fixes → Verify & ship) with the scan id and step in the URL, so reload and back keep state (`GET /api/scans/:id` returns the stored scan; approve returns a summary with the measured rescan score and the still-failing checks). Works on any public GitHub repo. Checked in a browser on this repo (20 → 42 after 6 approvals, rescan-measured), the demo shop (`?demo=1`, score 2, 14 guard-passed patches), at 375 px, and the zip download. Verified: 145 engine + 28 API + 4 demo tests.
+- Phase 7: **Any website, live.** `POST /api/sites` (`apps/api/src/site.ts`) reads a public site passively and runs 16 site checks (`packages/engine/src/site/checks.ts`); SSRF guard at connect time, size and time caps, 20 scans/min per instance. Landing page redesigned; its check list comes from `GET /api/checks`. Dashboard extras: JSON/Markdown export, share link, search, filters, keyboard shortcuts. CLI `fix --prove` runs the attack replay on the demo shop locally (2 → 59, 5/6 attacks blocked, 1/2 paths closed, 4/4 tests). Deployed to Vercel at https://siidekick.ashforge.cv (`scripts/deploy-vercel.sh --prod`). Pitch docs final (`docs/pitch/`), API reference `docs/API.md`. Verified: 169 engine + 71 API + 4 demo tests.
 
 ## Not done
+- Demo video, and the TODO(team) fields in `docs/pitch/SUBMISSION.md` (video link, team names).
+- Vercel keeps scan records in `/tmp` per instance: links can 404 after a recycle. A durable store (Upstash Redis or Vercel Blob, free tiers) needs the user's yes.
 - AWS: template prepared (`sam validate --lint` passes), not yet deployed.
 - Hindi copy not checked by a native speaker.
 - Replay on Lambda is unverified: Node 22 runtime, writing the two shop copies to `/tmp`, spawning `node` children.
 
 ## Known gaps
 - Stale local API on port 8787 (PID 30531) during dev; dev used 8790.
+- After approving all fixes, the summary still lists `jwt-misuse` and `input-validation` as failing (owner must verify tokens and wire `validate()`); `sql-string-concat` is report-only.
+- `tools/siidekick-py/demo/vulnerable-shop/.env` is committed on purpose as a planted flaw for that demo (fake values).
 
 ## Next
-1. `scripts/deploy.sh` once AWS access is confirmed (#2).
-2. Landing page redesign (real numbers from a live scan, no hardcoded stats), then P1 items in `docs/PLAN.md`: GitHub Action, badge.
-3. Record the demo video (`docs/pitch/DEMO_SCRIPT.md`) and submit by Nov 29 (`docs/pitch/SUBMISSION.md`).
+1. Record the demo video (`docs/pitch/DEMO_SCRIPT.md`), fill TODO(team), submit by Nov 29 (`docs/pitch/SUBMISSION.md`).
+2. `scripts/deploy.sh` once `aws configure` has Learner Lab credentials (#2).
+3. Durable scan store for Vercel, if approved. Then P1 items in `docs/PLAN.md`: GitHub Action, badge.
 
 ## Blocked on humans (#2)
 AWS Educate account (which services are allowed is unconfirmed; use the existing LabRole). Bedrock: no. Still needed: the official rules link, the team leader and members, and pilot sites.
