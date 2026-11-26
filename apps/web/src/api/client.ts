@@ -1,5 +1,5 @@
 import type { DiffLine } from "../../../../packages/engine/src/diffGuard";
-import type { FileEdit, GuardResult, Patch, RepoFile, ScanReport } from "../../../../packages/engine/src/types";
+import type { CheckGroup, FileEdit, GuardResult, Patch, RepoFile, ScanReport, Severity } from "../../../../packages/engine/src/types";
 import { createMockPatches, createMockScan, mockDownload } from "./mock";
 
 export type { DiffLine };
@@ -150,6 +150,20 @@ export function isGithubRepo(input: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** One check the engine runs, as listed by GET /api/checks. */
+export interface CheckInfo {
+  id: string;
+  title: string;
+  group: CheckGroup;
+  severity: Severity;
+}
+
+const validCheckList = (v: unknown) => isObj(v) && Array.isArray(v.repo) && Array.isArray(v.site);
+
+export function getChecks(): Promise<{ repo: CheckInfo[]; site: CheckInfo[] }> {
+  return live(request("/api/checks", { method: "GET" }, validCheckList));
 }
 
 export interface CheckResponse {

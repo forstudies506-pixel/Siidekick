@@ -6,6 +6,7 @@ export function SiteHeader() {
       </a>
       <nav aria-label="Primary navigation">
         <a href="/#how">How it works</a>
+        <a href="/#checks">Checks</a>
         <a href="/app">Open dashboard</a>
       </nav>
     </header>
