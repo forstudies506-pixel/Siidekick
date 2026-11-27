@@ -83,12 +83,15 @@ Siidekick rebuilds the dependency graph from `package-lock.json` (each entry's d
 
 | What | Result |
 |---|---|
+| Demo shop score, before → after approving the 15 guard-passed fixes | 33 → 62 (failing checks 23 → 12; +209 / −8 lines) |
+| Failing checks that can expose personal data (DPDP-relevant) | 11 → 6 |
+| Attack replay on the live shop | 6 of 7 attacks blocked; fake Razorpay payment 200 → 400, while a correctly signed payment still gets its pass; patched app's tests 4/4 |
 | Demo shop: vulnerable packages found by OSV.dev, with dependency paths | 8 (2 direct, 6 transitive via express) |
 | Same packages reported by `npm audit` before the fix | 8 of 8 (independent source agrees) |
 | After the approved fixes, on AWS CodeBuild (Node 22): `npm audit` | 0 vulnerable packages, tests passing before and after → **verified** |
-| Verification workflow on AWS, end to end (Step Functions → CodeBuild → evaluate) | 69 s, measured 2026-11-28 in ap-southeast-2 |
+| Verification workflow on AWS, end to end (Step Functions → CodeBuild → evaluate) | 69–74 s across runs on 2026-11-28 in ap-southeast-2, most of it CodeBuild start-up |
 | Bedrock explanation (Nova Lite, Hindi, grounded) | answered live on the first call |
-| Automated tests | 202 engine + 101 API + 4 demo-app, all passing |
+| Automated tests | 198 engine + 60 API + 4 demo-app, all passing |
 
 Live deployment: https://d1ulntgja5qae0.cloudfront.net (Sydney, ap-southeast-2; Free Plan accounts get one region).
 
