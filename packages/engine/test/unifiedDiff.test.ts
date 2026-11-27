@@ -6,6 +6,11 @@ import { dirname, join } from "node:path";
 import { unifiedFileDiff, patchArtifacts } from "../src/unifiedDiff.js";
 import type { Patch, RepoSnapshot } from "../src/types.js";
 
+/** git confined to `dir`: no parent repo is found and line endings stay as written (Windows checkouts default to CRLF). */
+function git(dir: string, args: string[]): void {
+  execFileSync("git", ["-c", "core.autocrlf=false", ...args], { cwd: dir, env: { ...process.env, GIT_CEILING_DIRECTORIES: dirname(dir) } });
+}
+
 function writeTree(dir: string, files: Record<string, string>) {
   for (const [p, c] of Object.entries(files)) {
     mkdirSync(dirname(join(dir, p)), { recursive: true });
@@ -19,10 +24,10 @@ function roundTrip(before: Record<string, string>, after: Record<string, string>
   try {
     writeTree(dir, before);
     writeFileSync(join(dir, "x.patch"), diff);
-    execFileSync("git", ["apply", "--check", "x.patch"], { cwd: dir });
-    execFileSync("git", ["apply", "x.patch"], { cwd: dir });
+    git(dir, ["apply", "--check", "x.patch"]);
+    git(dir, ["apply", "x.patch"]);
     for (const [p, c] of Object.entries(after)) expect(readFileSync(join(dir, p), "utf8")).toBe(c);
-    execFileSync("git", ["apply", "-R", "x.patch"], { cwd: dir });
+    git(dir, ["apply", "-R", "x.patch"]);
     for (const [p, c] of Object.entries(before)) expect(readFileSync(join(dir, p), "utf8")).toBe(c);
     for (const p of Object.keys(after)) if (!(p in before)) expect(existsSync(join(dir, p))).toBe(false);
   } finally {
@@ -137,11 +142,11 @@ describe("patchArtifacts", () => {
     try {
       writeTree(dir, { "server.js": original.files[0].content });
       writeTree(dir, Object.fromEntries(files.map((f) => [f.path, f.content])));
-      execFileSync("git", ["apply", ".siidekick/security-headers-1.patch"], { cwd: dir });
-      execFileSync("git", ["apply", ".siidekick/health-endpoint-1.patch"], { cwd: dir });
+      git(dir, ["apply", ".siidekick/security-headers-1.patch"]);
+      git(dir, ["apply", ".siidekick/health-endpoint-1.patch"]);
       expect(readFileSync(join(dir, "server.js"), "utf8")).toBe(end);
-      execFileSync("git", ["apply", "-R", ".siidekick/health-endpoint-1.patch"], { cwd: dir });
-      execFileSync("git", ["apply", "-R", ".siidekick/security-headers-1.patch"], { cwd: dir });
+      git(dir, ["apply", "-R", ".siidekick/health-endpoint-1.patch"]);
+      git(dir, ["apply", "-R", ".siidekick/security-headers-1.patch"]);
       expect(readFileSync(join(dir, "server.js"), "utf8")).toBe(original.files[0].content);
       expect(existsSync(join(dir, "middleware/headers.js"))).toBe(false);
     } finally {

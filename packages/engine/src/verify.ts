@@ -23,7 +23,7 @@ export const runOwnerTests: TestRunner = async (dir) => {
   }
   if (!pkg.scripts?.test) return null;
   return new Promise((done) => {
-    execFile("npm", ["test"], { cwd: dir, timeout: TEST_TIMEOUT_MS, env: { ...process.env, CI: "1" }, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
+    execFile("npm", ["test"], { cwd: dir, shell: process.platform === "win32", timeout: TEST_TIMEOUT_MS, env: { ...process.env, CI: "1" }, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
       done({ ok: !err, output: (stdout + stderr).split("\n").slice(-20).join("\n") });
     });
   });

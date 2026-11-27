@@ -28,7 +28,7 @@ describe("siidekick fix --prove", () => {
     try {
       await writeFile(join(dir, "package.json"), JSON.stringify({ name: "x", scripts: { start: "node server.js" } }));
       await writeFile(join(dir, "server.js"), "require('fs').writeFileSync(__dirname + '/RAN', 'yes');\n");
-      const err = await run("npx", ["tsx", "src/cli.ts", "fix", dir, "--prove"], { cwd: engine }).catch((e) => e);
+      const err = await run("npx", ["tsx", "src/cli.ts", "fix", dir, "--prove"], { cwd: engine, shell: process.platform === "win32" }).catch((e) => e);
       expect(err.code).toBe(2);
       expect(String(err.stderr)).toMatch(/only runs on the bundled demo shop/);
       expect(String(err.stdout)).not.toMatch(/Score/);

@@ -268,12 +268,18 @@ async function boot(repo: RepoSnapshot, runtimeDir: string, adminToken: string):
     stderr = (stderr + d.toString()).slice(-400);
   });
   let exited = false;
-  child.once("exit", () => {
-    exited = true;
-  });
+  const exitedP = new Promise<void>((done) =>
+    child.once("exit", () => {
+      exited = true;
+      done();
+    }),
+  );
   const stop = async () => {
-    if (!exited) child.kill("SIGKILL");
-    await rm(dir, { recursive: true, force: true });
+    if (!exited) {
+      child.kill("SIGKILL");
+      await exitedP; // Windows keeps the folder locked until the process is gone
+    }
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   };
   const base = `http://127.0.0.1:${port}`;
   const deadline = Date.now() + BOOT_TIMEOUT_MS;
