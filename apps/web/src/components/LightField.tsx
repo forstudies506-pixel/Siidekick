@@ -1,7 +1,8 @@
 import { useEffect } from "react";
+import FaultyTerminal from "./FaultyTerminal";
 
 /**
- * The light the glass refracts. A fixed field of two soft lights and a fine grid sits behind everything; the
+ * The light the glass refracts. A fixed field of saffron-to-indus LEDs (FaultyTerminal) sits behind everything; the
  * `.lens` surfaces bend it through an SVG displacement filter (Chromium supports `backdrop-filter: url()`;
  * other browsers get frosted glass). The pointer moves a specular highlight on whichever lens it is over.
  */
@@ -41,17 +42,60 @@ export function LightField() {
   return (
     <>
       <div className="light-field" aria-hidden="true">
-        <span className="lf-light lf-saffron" />
-        <span className="lf-light lf-indus" />
-        <span className="lf-grid" />
+        {/* The LEDs are the light source: a dim, slow terminal field whose lit cells take the saffron-to-indus
+            gradient (multiplied onto white LEDs, so dark cells stay dark). The glass bends this light. */}
+        <div className="lf-terminal">
+          <FaultyTerminal
+            tint="#ffffff"
+            scale={1.7}
+            gridMul={[2, 1]}
+            digitSize={1.3}
+            timeScale={0.12}
+            brightness={1.1}
+            glow={0.45}
+            scanlineIntensity={0.12}
+            glitchAmount={0.4}
+            flickerAmount={0.25}
+            noiseAmp={0.9}
+            curvature={0}
+            mouseReact
+            mouseStrength={0.12}
+            mouseGlow={0.35}
+            persistence={0.6}
+            vignette={0.6}
+            clickEffect="none"
+            pageLoadAnimation
+            dpr={1}
+          />
+        </div>
       </div>
       <svg className="lf-defs" aria-hidden="true" focusable="false" width="0" height="0">
-        {/* Smooth, low-frequency displacement: bends what is behind the glass like thick liquid glass.
-            (Chromium applies url() filters in backdrop-filter; image-based maps do not render there.) */}
-        <filter id="siidekick-lens" x="-5%" y="-5%" width="110%" height="110%" colorInterpolationFilters="sRGB">
+        {/* Liquid glass (Chromium applies url() filters in backdrop-filter; image-based maps do not render there).
+            The displacement map is built from the glass's own shape: SourceAlpha blurred gives 1 inside and falls
+            off at the rim, and its slope bends light strongly at the edges like a thick lens while the middle
+            stays clear. A faint low-frequency flow adds the liquid wobble. Red, green and blue are displaced by
+            slightly different amounts, so edges pick up a subtle prism fringe. */}
+        <filter id="siidekick-lens" x="0" y="0" width="100%" height="100%" colorInterpolationFilters="sRGB">
+          <feGaussianBlur in="SourceAlpha" stdDeviation="14" result="rimA" />
+          <feColorMatrix in="rimA" type="matrix" values="0 0 0 1 0  0 0 0 1 0  0 0 0 1 0  0 0 0 0 1" result="rim" />
+          <feOffset in="rim" dx="8" dy="0" result="rimX" />
+          <feOffset in="rim" dx="0" dy="8" result="rimY" />
+          <feComposite in="rim" in2="rimX" operator="arithmetic" k1="0" k2="3" k3="-3" k4="0.5" result="slopeX" />
+          <feComposite in="rim" in2="rimY" operator="arithmetic" k1="0" k2="3" k3="-3" k4="0.5" result="slopeY" />
+          <feColorMatrix in="slopeX" type="matrix" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0 1" result="mapX" />
+          <feColorMatrix in="slopeY" type="matrix" values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 0 1" result="mapY" />
+          <feComposite in="mapX" in2="mapY" operator="arithmetic" k1="0" k2="1" k3="1" k4="0" result="lensMap" />
           <feTurbulence type="fractalNoise" baseFrequency="0.0035 0.008" numOctaves="1" seed="11" result="flow" />
           <feGaussianBlur in="flow" stdDeviation="6" result="soft" />
-          <feDisplacementMap in="SourceGraphic" in2="soft" scale="46" xChannelSelector="R" yChannelSelector="G" />
+          <feComposite in="lensMap" in2="soft" operator="arithmetic" k1="0" k2="1" k3="0.3" k4="-0.15" result="map" />
+          <feDisplacementMap in="SourceGraphic" in2="map" scale="56" xChannelSelector="R" yChannelSelector="G" result="dR" />
+          <feDisplacementMap in="SourceGraphic" in2="map" scale="50" xChannelSelector="R" yChannelSelector="G" result="dG" />
+          <feDisplacementMap in="SourceGraphic" in2="map" scale="44" xChannelSelector="R" yChannelSelector="G" result="dB" />
+          <feColorMatrix in="dR" type="matrix" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="cR" />
+          <feColorMatrix in="dG" type="matrix" values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0" result="cG" />
+          <feColorMatrix in="dB" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0" result="cB" />
+          <feBlend in="cR" in2="cG" mode="screen" result="rg" />
+          <feBlend in="rg" in2="cB" mode="screen" />
         </filter>
       </svg>
     </>

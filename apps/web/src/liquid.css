@@ -44,12 +44,10 @@ h1, h2, h3, h4 { font-weight: 650; letter-spacing: -0.02em; }
 
 /* ---------- light field ---------- */
 .light-field { position: fixed; inset: 0; z-index: -1; overflow: hidden; background: radial-gradient(120% 90% at 50% 0%, #0b1224 0%, var(--night) 60%); }
-.lf-light { position: absolute; border-radius: 50%; filter: blur(70px); opacity: 0.85; will-change: transform; }
-.lf-saffron { width: 50vw; height: 50vw; left: -6vw; top: -18vw; background: radial-gradient(circle at 40% 40%, rgba(244, 184, 96, 0.55), rgba(244, 120, 60, 0.12) 55%, transparent 70%); animation: lf-drift-a 38s var(--ease) infinite alternate; }
-.lf-indus { width: 56vw; height: 56vw; right: -14vw; top: 6vh; background: radial-gradient(circle at 50% 50%, rgba(91, 124, 255, 0.5), rgba(60, 40, 180, 0.1) 55%, transparent 70%); animation: lf-drift-b 46s var(--ease) infinite alternate; }
-.lf-grid { position: absolute; inset: -1px; background-image: linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px); background-size: 56px 56px; mask-image: radial-gradient(100% 80% at 50% 25%, #000 0%, transparent 80%); }
-@keyframes lf-drift-a { to { transform: translate(10vw, 8vh) scale(1.08); } }
-@keyframes lf-drift-b { to { transform: translate(-8vw, -6vh) scale(0.94); } }
+/* The LED field: white LEDs coloured by a saffron-to-indus gradient multiplied onto them, so only lit cells
+   carry colour. Masked toward the edges and kept dim so the glass, not the background, holds the eye. */
+.lf-terminal { position: absolute; inset: 0; isolation: isolate; background: #03040a; opacity: 0.8; -webkit-mask-image: radial-gradient(120% 95% at 50% 30%, #000 25%, rgba(0, 0, 0, 0.4) 70%, transparent 100%); mask-image: radial-gradient(120% 95% at 50% 30%, #000 25%, rgba(0, 0, 0, 0.4) 70%, transparent 100%); }
+.lf-terminal::after { content: ""; position: absolute; inset: 0; pointer-events: none; mix-blend-mode: multiply; background: linear-gradient(115deg, #f4b860 0%, #ee9a52 22%, #b07fb0 48%, #6f7fe8 72%, #5b7cff 100%); }
 .lf-defs { position: absolute; width: 0; height: 0; }
 
 /* ---------- glass tiers ---------- */
@@ -70,7 +68,11 @@ h1, h2, h3, h4 { font-weight: 650; letter-spacing: -0.02em; }
 /* edge light: a gradient hairline that is brighter where light would catch a curved rim */
 :is(.lens, .site-header, .dashboard-header, .scan-strip, .repo-form, .hero-form)::before, :is(.pane, .side-card, .india-lens, .findings-rail, .finding-list, .fix-list, .fix-detail, .manual-list, .still-failing, .ship-card, .aws-panel, .proof-panel, .viz-card, .verify-scores > div, .state-box, .empty-state, .step-cta, .check-col, .flow li, .catch, .facts)::before {
   content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px; pointer-events: none; z-index: 1;
-  background: linear-gradient(150deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.06) 32%, rgba(255, 255, 255, 0.02) 62%, rgba(255, 255, 255, 0.2));
+  /* the rim catches the LED light where the pointer is: a short saffron-to-indus glint, then the resting hairline */
+  background:
+    radial-gradient(160px circle at var(--mx, 50%) var(--my, 100%), rgba(244, 184, 96, calc(0.75 * var(--lit, 0))), rgba(160, 120, 220, calc(0.45 * var(--lit, 0))) 45%, transparent 72%),
+    linear-gradient(150deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.06) 32%, rgba(255, 255, 255, 0.02) 62%, rgba(255, 255, 255, 0.2));
+  padding: 1.25px;
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
 }
@@ -84,7 +86,7 @@ h1, h2, h3, h4 { font-weight: 650; letter-spacing: -0.02em; }
 :is(.pane, .side-card, .india-lens, .findings-rail, .finding-list, .fix-list, .fix-detail, .manual-list, .still-failing, .ship-card, .aws-panel, .proof-panel, .viz-card, .verify-scores > div, .state-box, .empty-state, .step-cta, .check-col, .flow li, .catch, .facts)::after { background: radial-gradient(360px circle at var(--mx, 30%) var(--my, 0%), rgba(255, 255, 255, 0.05), transparent 60%); }
 :is(.lens, .site-header, .dashboard-header, .scan-strip, .repo-form, .hero-form) > *, :is(.pane, .side-card, .india-lens, .findings-rail, .finding-list, .fix-list, .fix-detail, .manual-list, .still-failing, .ship-card, .aws-panel, .proof-panel, .viz-card, .verify-scores > div, .state-box, .empty-state, .step-cta, .check-col, .flow li, .catch, .facts) > * { position: relative; z-index: 2; }
 /* real refraction where the browser can bend the backdrop */
-.has-refraction :is(.lens, .site-header, .dashboard-header, .scan-strip, .repo-form, .hero-form) { -webkit-backdrop-filter: url(#siidekick-lens) blur(10px) saturate(170%) brightness(1.06); backdrop-filter: url(#siidekick-lens) blur(10px) saturate(170%) brightness(1.06); }
+.has-refraction :is(.lens, .site-header, .dashboard-header, .scan-strip, .repo-form, .hero-form) { -webkit-backdrop-filter: url(#siidekick-lens) blur(5px) saturate(170%) brightness(1.06); backdrop-filter: url(#siidekick-lens) blur(5px) saturate(170%) brightness(1.06); }
 /* the hero lens bends the headline behind it: less blur so the refraction reads */
 .has-refraction .proof-lens { -webkit-backdrop-filter: url(#siidekick-lens) blur(3px) saturate(180%) brightness(1.04); backdrop-filter: url(#siidekick-lens) blur(3px) saturate(180%) brightness(1.04); }
 
@@ -226,7 +228,11 @@ kbd { border-radius: 6px; background: rgba(255, 255, 255, 0.08); border: 0; box-
 .app-shell .dashboard-header {
   position: sticky; top: 12px; z-index: 30; max-width: calc(var(--wrap) - 2 * var(--gutter)); margin: 12px auto 0; padding: 10px 12px 10px 22px;
   border: 0; border-radius: 999px; min-height: 64px;
+  /* Three columns with equal sides: the step rail stays centred whatever the tools on the right contain. */
+  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center;
 }
+.app-shell .dashboard-header > .wordmark { justify-self: start; }
+.app-shell .dashboard-header > .dashboard-tools { justify-self: end; gap: 10px; }
 .app-shell .dashboard { max-width: var(--wrap); margin: 0 auto; padding: 28px var(--gutter) 80px; }
 .busy-bar { max-width: calc(var(--wrap) - 2 * var(--gutter)); margin: 10px auto 0; border-radius: 999px; overflow: hidden; }
 .step-rail { gap: 4px; padding: 4px; border-radius: 999px; background: rgba(0, 0, 0, 0.25); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06); }
@@ -254,15 +260,18 @@ kbd { border-radius: 6px; background: rgba(255, 255, 255, 0.08); border: 0; box-
 .scan-actions { flex-direction: row; flex-wrap: wrap; gap: 8px; }
 .scan-actions .button { min-height: 38px; padding: 0 14px; font-size: 13.5px; }
 
-/* connect */
-.connect-grid { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 28px; align-items: start; }
-.connect-main { padding-top: 24px; }
-.repo-form { margin-top: 26px; padding: 24px; gap: 10px; }
-.repo-form label { font-size: 15px; }
-.repo-form input { height: 56px; padding: 0 18px; font-size: 17px; border-radius: 18px; }
-.repo-form .button { min-height: 56px; padding: 0 26px; }
-.connect-alt { margin-top: 18px; gap: 10px; }
-.connect-side { display: grid; gap: 16px; }
+/* connect: one centred column, the repo input is the hero; context cards sit in a row beneath it */
+.connect-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 56px; justify-items: center; padding-top: clamp(24px, 7vh, 88px); }
+.connect-main { width: 100%; max-width: 760px; text-align: center; padding-top: 0; }
+.connect-main .lede { margin-inline: auto; }
+.connect-main .repo-form { margin-top: 30px; padding: 12px; gap: 10px; border: 0; border-radius: 30px; text-align: left; }
+.connect-main .repo-form label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.repo-form input { height: 60px; padding: 0 22px; font-size: 18px; border-radius: 20px; }
+.repo-form .button { min-height: 60px; padding: 0 30px; border-radius: 20px; }
+.connect-main .repo-form small { padding: 2px 10px 4px; text-align: center; }
+.connect-alt { margin-top: 18px; gap: 10px; justify-content: center; }
+.connect-main .state-box, .connect-main .read-notes { text-align: left; }
+.connect-side { width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 16px; align-items: start; }
 .side-card { border: 0; border-radius: var(--r-pane); padding: 22px 24px; }
 .side-card.current { box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--saffron) 55%, transparent), 0 24px 60px -28px rgba(0, 0, 0, 0.7); }
 .recent-list li, .recent-list button { border-radius: 14px; }
@@ -323,6 +332,8 @@ kbd { border-radius: 6px; background: rgba(255, 255, 255, 0.08); border: 0; box-
   .sect-head, .catch-grid, .connect-grid { grid-template-columns: minmax(0, 1fr); }
   .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .site-header, .app-shell .dashboard-header { border-radius: 24px; flex-wrap: wrap; }
+  .app-shell .dashboard-header { grid-template-columns: minmax(0, 1fr) auto; row-gap: 8px; }
+  .app-shell .dashboard-header nav { grid-column: 1 / -1; order: 3; min-width: 0; }
   .step-rail { overflow-x: auto; max-width: 100%; }
   .scan-strip { flex-wrap: wrap; }
   .scan-strip .score-block { border-right: 0; }
@@ -336,7 +347,7 @@ kbd { border-radius: 6px; background: rgba(255, 255, 255, 0.08); border: 0; box-
 
 /* ---------- motion and accessibility ---------- */
 @media (prefers-reduced-motion: reduce) {
-  .lf-light, .proof-lens, .connect-grid, .findings-step, .fixes-step, .verify-step { animation: none !important; }
+  .proof-lens, .connect-grid, .findings-step, .fixes-step, .verify-step { animation: none !important; }
   :is(.lens, .site-header, .dashboard-header, .scan-strip, .repo-form, .hero-form)::after, :is(.pane, .side-card, .india-lens, .findings-rail, .finding-list, .fix-list, .fix-detail, .manual-list, .still-failing, .ship-card, .aws-panel, .proof-panel, .viz-card, .verify-scores > div, .state-box, .empty-state, .step-cta, .check-col, .flow li, .catch, .facts)::after { transition: none; }
 }
 @media (prefers-reduced-transparency: reduce) {
