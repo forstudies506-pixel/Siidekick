@@ -57,6 +57,8 @@ export interface ChangeReport {
   changes: ChangeEntry[];
   skipped: { patchId: string; title: string; why: string }[];
   remaining: Finding[];
+  /** The isolated install/build/tests/scanner run over the patched repo, when one ran. */
+  verification?: Verification;
   limits: string[];
 }
 
@@ -162,8 +164,20 @@ export function buildChangeReport(input: ChangeReportInput): ChangeReport {
     changes,
     skipped,
     remaining,
+    ...(input.verification ? { verification: input.verification } : {}),
     limits,
   };
+}
+
+/** One line per step of the isolated run, for both report formats. */
+function verificationLines(v: Verification): { ok: boolean | null; text: string }[] {
+  const out: { ok: boolean | null; text: string }[] = [];
+  const step = (name: string, r?: { ok: boolean; detail?: string }) => r && out.push({ ok: r.ok, text: `${name} ${r.ok ? "passed" : "failed"}${r.detail ? ` (${r.detail})` : ""}` });
+  step("Dependency install", v.install);
+  step("Build", v.build);
+  if (v.tests) out.push({ ok: v.tests.ok, text: `The project's tests ${v.tests.ok ? "passed" : "failed"}${v.tests.passed !== undefined ? ` (${v.tests.passed} passed, ${v.tests.failed ?? 0} failed)` : ""}${v.tests.detail ? ` (${v.tests.detail})` : ""}` });
+  if (v.scanner) out.push({ ok: v.scanner.after <= v.scanner.before, text: `${v.scanner.name} (independent scanner): ${v.scanner.before} → ${v.scanner.after} known vulnerabilities` });
+  return out;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -184,6 +198,12 @@ export function changeReportMarkdown(r: ChangeReport): string {
   out.push(`| Open findings | ${sevLine(r.open.before)} | ${sevLine(r.open.after)} |`, "");
   if (r.checks.fixed.length) out.push(`Checks that now pass: ${r.checks.fixed.map((c) => `\`${c}\``).join(", ")}.`, "");
 
+  if (r.verification) {
+    out.push(`## Isolated verification (${r.verification.where})`, "", "The patched repo was installed, built and tested away from Siidekick's own servers, with no credentials passed to its code.", "");
+    for (const l of verificationLines(r.verification)) out.push(`- ${mark(l.ok)} ${l.text}`);
+    if (r.verification.logUrl) out.push(`- Build log: ${r.verification.logUrl}`);
+    out.push("");
+  }
   out.push(`## Changes (${r.changes.length})`, "");
   r.changes.forEach((c, i) => {
     const added = c.files.reduce((s, f) => s + f.added, 0);
@@ -277,6 +297,7 @@ ul.remaining li{margin:6px 0}.undo{font-size:13px;color:var(--muted)}
 <tr><td>Score</td><td>${r.score.before}/100</td><td>${r.score.after}/100</td></tr>
 <tr><td>Worst open risk</td><td>${esc(r.risk.before)}</td><td>${esc(r.risk.after)}</td></tr>
 <tr><td>Open findings</td><td>${esc(sevLine(r.open.before))}</td><td>${esc(sevLine(r.open.after))}</td></tr></table>
+${r.verification ? `<h2>Isolated verification (${esc(r.verification.where)})</h2><ul class="evidence">${verificationLines(r.verification).map((l) => `<li class="${l.ok === null ? "na" : l.ok ? "ok" : "bad"}">${esc(l.text)}</li>`).join("")}</ul>` : ""}
 <h2>Changes (${r.changes.length})</h2>${changes || "<p>No changes were applied.</p>"}
 ${r.skipped.length ? `<h2>Proposed but not applied</h2><ul>${r.skipped.map((s) => `<li>${esc(s.title)}: ${esc(s.why)}</li>`).join("")}</ul>` : ""}
 <h2>Remaining risk</h2><ul class="remaining">${remaining || "<li>No open findings from the checks that ran.</li>"}</ul>

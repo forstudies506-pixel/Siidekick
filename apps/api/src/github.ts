@@ -5,11 +5,19 @@ const OWNER_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
 const REPO_RE = /^[A-Za-z0-9._-]{1,100}$/;
 const REF_RE = /^[A-Za-z0-9._/-]{1,100}$/;
 
-const MAX_COMPRESSED = 10 * 1024 * 1024;
-const MAX_TAR = 30 * 1024 * 1024;
-const MAX_FILE_BYTES = 512 * 1024;
-const MAX_FILES = 500;
-const MAX_TOTAL_BYTES = 2 * 1024 * 1024;
+export interface GithubLimits {
+  compressed: number;
+  tar: number;
+  fileBytes: number;
+  files: number;
+  totalBytes: number;
+  timeoutMs: number;
+}
+
+/** The synchronous API path: small enough to scan inside one HTTP request. */
+export const QUICK_LIMITS: GithubLimits = { compressed: 10 * 1024 * 1024, tar: 30 * 1024 * 1024, fileBytes: 512 * 1024, files: 500, totalBytes: 2 * 1024 * 1024, timeoutMs: 10_000 };
+/** The AWS pipeline's full scan (Lambda with 15 minutes and 3 GB): every text file of a normal repo. */
+export const FULL_LIMITS: GithubLimits = { compressed: 120 * 1024 * 1024, tar: 600 * 1024 * 1024, fileBytes: 1024 * 1024, files: 25_000, totalBytes: 80 * 1024 * 1024, timeoutMs: 60_000 };
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", "coverage", "vendor"]);
 
 export class GithubError extends Error {}
@@ -119,7 +127,7 @@ function stripTopDir(path: string): string {
   return idx < 0 ? "" : path.slice(idx + 1);
 }
 
-function parseTar(tar: Buffer): { files: RepoSnapshot["files"]; omitted: number } {
+function parseTar(tar: Buffer, lim: GithubLimits = QUICK_LIMITS): { files: RepoSnapshot["files"]; omitted: number } {
   const files: RepoSnapshot["files"] = [];
   let total = 0;
   let omitted = 0;
@@ -159,11 +167,11 @@ function parseTar(tar: Buffer): { files: RepoSnapshot["files"]; omitted: number 
       const rel = stripTopDir(full);
       if (rel && safePath(rel) && !shouldSkip(rel)) {
         const content = tar.subarray(dataStart, dataEnd);
-        if (content.length <= MAX_FILE_BYTES && !content.subarray(0, 8192).includes(0)) {
+        if (content.length <= lim.fileBytes && !content.subarray(0, 8192).includes(0)) {
           const text = content.toString("utf8");
           const bytes = Buffer.byteLength(text, "utf8");
           // Past the caps, keep reading so the count is exact, but keep no more text.
-          if (files.length >= MAX_FILES || total + bytes > MAX_TOTAL_BYTES) {
+          if (files.length >= lim.files || total + bytes > lim.totalBytes) {
             omitted++;
           } else {
             total += bytes;
@@ -184,8 +192,9 @@ function parseTar(tar: Buffer): { files: RepoSnapshot["files"]; omitted: number 
 
 export async function fetchGithubRepo(
   input: string,
-  deps?: { fetch?: typeof fetch },
+  deps?: { fetch?: typeof fetch; limits?: GithubLimits },
 ): Promise<RepoSnapshot & { omitted: number }> {
+  const lim = deps?.limits ?? QUICK_LIMITS;
   const parsed = parseGithubUrl(input);
   if (!parsed) throw new GithubError("not a valid public GitHub repo URL");
   const { owner, repo, ref } = parsed;
@@ -194,20 +203,20 @@ export async function fetchGithubRepo(
   const url = `https://codeload.github.com/${owner}/${repo}/tar.gz/${ref}`;
   let res: Response;
   try {
-    res = await doFetch(url, { redirect: "error", signal: AbortSignal.timeout(10000) });
+    res = await doFetch(url, { redirect: "error", signal: AbortSignal.timeout(lim.timeoutMs) });
   } catch {
     throw new GithubError("repo not found or not public");
   }
   if (res.status !== 200) throw new GithubError("repo not found or not public");
 
-  const compressed = await readCapped(res, MAX_COMPRESSED);
+  const compressed = await readCapped(res, lim.compressed);
   let tar: Buffer;
   try {
-    tar = gunzipSync(compressed, { maxOutputLength: MAX_TAR });
+    tar = gunzipSync(compressed, { maxOutputLength: lim.tar });
   } catch {
     throw new GithubError("repo too large");
   }
 
-  const { files, omitted } = parseTar(tar);
+  const { files, omitted } = parseTar(tar, lim);
   return { name: `${owner}/${repo}`, files, omitted };
 }

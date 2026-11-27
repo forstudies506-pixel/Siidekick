@@ -29,6 +29,8 @@ import { createHash } from "node:crypto";
 import { createStore, RecordTooLargeError, type Store, type ScanRecord } from "./store.js";
 import { fetchGithubRepo, GithubError } from "./github.js";
 import { fetchSite, SiteError, takeScanSlot } from "./site.js";
+import { editDiff, proposePatches } from "./patching.js";
+import type { Artifacts } from "./artifacts.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -90,12 +92,6 @@ const editSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("modify"), path: z.string(), before: z.string(), after: z.string() }),
 ]);
 const checkBodySchema = z.object({ edits: z.array(editSchema).min(1).max(MAX_CHECK_EDITS) });
-
-function editDiff(edits: FileEdit[]): Array<{ path: string; lines: DiffLine[] }> {
-  return edits.map((e) =>
-    e.kind === "create" ? { path: e.path, lines: renderDiff("", e.content) } : { path: e.path, lines: renderDiff(e.before, e.after) },
-  );
-}
 
 type Handler = (params: Record<string, string>, body: unknown) => Promise<{ status: number; body: unknown }>;
 
@@ -175,6 +171,10 @@ export function makeRouter(deps: {
   fetchSite?: (url: string) => Promise<SiteSnapshot>;
   /** Code-scan limiter; defaults to 30 GitHub/upload scans a minute per instance. */
   allowCodeScan?: () => boolean;
+  /** Starts the AWS pipeline for a scan and returns the execution ARN (set on AWS only). */
+  startPipeline?: (scanId: string) => Promise<string>;
+  /** The pipeline's S3 bucket, for the watch list (set on AWS only). */
+  artifacts?: Artifacts;
 }) {
   const store = deps.store;
   const allowCodeScan = deps.allowCodeScan ?? slidingWindow(Number(process.env.CODE_SCANS_PER_MINUTE ?? 30));
@@ -196,7 +196,19 @@ export function makeRouter(deps: {
     return { status: 200, body: { repo: registry.map(row), site: siteChecks.map(row) } };
   }
 
-  async function saveScan(repo: RepoSnapshot, demo = false, omitted = 0): Promise<{ status: number; body: unknown }> {
+  /** Hand a stored scan to the AWS pipeline. A pipeline that cannot start never fails the scan itself. */
+  async function startPipeline(record: ScanRecord): Promise<ScanRecord["pipeline"]> {
+    if (!deps.startPipeline) return undefined;
+    try {
+      const executionArn = await deps.startPipeline(record.id);
+      return { executionArn, status: "running", stage: "queued", updatedAt: new Date().toISOString() };
+    } catch (err) {
+      console.error("pipeline start failed:", err);
+      return { executionArn: "", status: "failed", stage: "start", updatedAt: new Date().toISOString(), error: "the pipeline could not start" };
+    }
+  }
+
+  async function saveScan(repo: RepoSnapshot, demo = false, omitted = 0, source?: ScanRecord["source"]): Promise<{ status: number; body: unknown }> {
     const report: ScanReport = await runScan({ repo, fetch: scanFetch }, registry);
     const id = crypto.randomUUID();
     const record: ScanRecord = {
@@ -206,9 +218,16 @@ export function makeRouter(deps: {
       report,
       ...(demo ? { demo: true as const } : {}),
       ...(omitted > 0 ? { omitted } : {}),
+      ...(source ? { source } : {}),
     };
     await store.put(id, record);
-    return { status: 201, body: { id, report, ...(omitted > 0 ? { omitted } : {}) } };
+    const pipeline = await startPipeline(record);
+    if (pipeline) {
+      // Re-read: the pipeline may already have written to the record.
+      const latest = (await store.get(id)) ?? record;
+      await store.put(id, { ...latest, pipeline: latest.pipeline?.stage && latest.pipeline.stage !== "queued" ? latest.pipeline : pipeline });
+    }
+    return { status: 201, body: { id, report, ...(omitted > 0 ? { omitted } : {}), ...(pipeline ? { pipeline } : {}) } };
   }
 
   async function createScanHandler(_params: Record<string, string>, body: unknown): Promise<{ status: number; body: unknown }> {
@@ -228,7 +247,7 @@ export function makeRouter(deps: {
     if (!allowCodeScan()) return busy;
     try {
       const { omitted, ...repo } = await fetchGithubRepo(parsed.data.url, { fetch: deps.fetch });
-      return await saveScan(repo, false, omitted);
+      return await saveScan(repo, false, omitted, { kind: "github", url: parsed.data.url });
     } catch (err) {
       if (err instanceof GithubError) return { status: 400, body: { error: err.message } };
       throw err;
@@ -276,6 +295,12 @@ export function makeRouter(deps: {
         omitted: record.omitted,
         demo: record.demo === true,
         ...(record.kind ? { kind: record.kind, site: record.site } : {}),
+        ...(record.pipeline ? { pipeline: record.pipeline } : {}),
+        ...(record.verification ? { verification: record.verification } : {}),
+        ...(record.explanations ? { explanations: record.explanations } : {}),
+        ...(record.alerts ? { alerts: record.alerts } : {}),
+        watch: record.watch === true,
+        pipelineAvailable: deps.startPipeline !== undefined,
         ...(anyApproved ? { approvedSummary: await approvedSummary(record) } : {}),
       },
     };
@@ -287,39 +312,8 @@ export function makeRouter(deps: {
     if (!record) return { status: 404, body: { error: "not found" } };
     if (record.kind === "site") return { status: 400, body: { error: "website scans report fixes; there is no code to patch" } };
 
-    let current: RepoSnapshot = { name: record.repo.name, files: [...record.repo.files] };
     const beforeReport: ScanReport = record.report;
-    const entries: Array<{
-      patchId: string;
-      patch: Patch;
-      guard: GuardResult;
-      diff: Array<{ path: string; lines: DiffLine[] }>;
-      approved: boolean;
-    }> = [];
-
-    for (const check of registry) {
-      const result = beforeReport.results.find((r) => r.checkId === check.id);
-      if (!result || result.passed || !check.fix) continue;
-      let patch: Patch | null;
-      try {
-        patch = await check.fix({ repo: current, fetch: scanFetch }, result.findings);
-      } catch (err) {
-        // A crashing fixer is that check's problem; skip it and keep applying the rest.
-        console.error(`check ${check.id} fix threw:`, err);
-        continue;
-      }
-      if (!patch) continue;
-
-      const guard: GuardResult = guardPatch(current, patch);
-      const diff = editDiff(patch.edits);
-
-      entries.push({ patchId: patch.id, patch, guard, diff, approved: false });
-      if (guard.ok) {
-        current = applyPatch(current, patch);
-      }
-    }
-
-    const afterReport: ScanReport = await runScan({ repo: current, fetch: scanFetch }, registry);
+    const { entries, patched: current, after: afterReport } = await proposePatches(record.repo, beforeReport, scanFetch);
     const status: "rescan-clean" | "partial" = afterReport.passed === afterReport.total ? "rescan-clean" : "partial";
 
     const updated: ScanRecord = {
@@ -468,6 +462,35 @@ export function makeRouter(deps: {
     return { status: 200, body: { report, markdown: changeReportMarkdown(report), html: changeReportHtml(report) } };
   }
 
+  /** Run the pipeline again for a stored scan (after a failure, or to verify again). */
+  async function pipelineHandler(params: Record<string, string>): Promise<{ status: number; body: unknown }> {
+    if (!UUID_RE.test(params.id)) return { status: 400, body: { error: "invalid id" } };
+    if (!deps.startPipeline) return { status: 501, body: { error: "the AWS pipeline is not configured on this deployment" } };
+    const record = await store.get(params.id);
+    if (!record) return { status: 404, body: { error: "not found" } };
+    if (record.kind === "site") return { status: 400, body: { error: "website scans have no code for the pipeline" } };
+    if (record.pipeline?.status === "running" && Date.now() - Date.parse(record.pipeline.updatedAt) < 15 * 60_000) {
+      return { status: 409, body: { error: "the pipeline is already running for this scan", pipeline: record.pipeline } };
+    }
+    const pipeline = await startPipeline(record);
+    await store.put(record.id, { ...record, pipeline });
+    return { status: 202, body: { pipeline } };
+  }
+
+  /** Daily rescans for this scan (EventBridge): new advisories against the same code raise an alert. */
+  async function watchHandler(params: Record<string, string>): Promise<{ status: number; body: unknown }> {
+    if (!UUID_RE.test(params.id)) return { status: 400, body: { error: "invalid id" } };
+    if (!deps.artifacts) return { status: 501, body: { error: "daily rescans need the AWS deployment" } };
+    const record = await store.get(params.id);
+    if (!record) return { status: 404, body: { error: "not found" } };
+    if (record.kind === "site") return { status: 400, body: { error: "website scans are not watched" } };
+    const index = (await deps.artifacts.getJson<{ ids: string[] }>("watch/index.json")) ?? { ids: [] };
+    if (!index.ids.includes(record.id)) index.ids.push(record.id);
+    await deps.artifacts.putJson("watch/index.json", { ids: index.ids.slice(-500) });
+    await store.put(record.id, { ...record, watch: true });
+    return { status: 200, body: { watch: true } };
+  }
+
   async function sbomHandler(params: Record<string, string>): Promise<{ status: number; body: unknown }> {
     if (!UUID_RE.test(params.id)) return { status: 400, body: { error: "invalid id" } };
     const record = await store.get(params.id);
@@ -510,6 +533,8 @@ export function makeRouter(deps: {
     { method: "POST", path: "api/scans/:id/prove", handler: proveHandler },
     { method: "GET", path: "api/scans/:id/report", handler: reportHandler },
     { method: "GET", path: "api/scans/:id/sbom", handler: sbomHandler },
+    { method: "POST", path: "api/scans/:id/pipeline", handler: pipelineHandler },
+    { method: "POST", path: "api/scans/:id/watch", handler: watchHandler },
   ];
 
   async function handle(req: {

@@ -4,6 +4,7 @@ import { gzipSync, gunzipSync } from "node:zlib";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { createClient } from "redis";
+import { artifactsFromEnv, type Artifacts } from "./artifacts.js";
 import type { RepoSnapshot, ScanReport, GuardResult, DiffLine, Patch, ReplayReport, Verification } from "@siidekick/engine";
 
 export interface PatchEntry {
@@ -39,6 +40,12 @@ export interface ScanRecord {
   explanations?: Record<string, { text: string; model: string; advisory?: string; at: string }>;
   // The AWS Step Functions run that processed this scan, when the async pipeline is on.
   pipeline?: { executionArn: string; status: string; stage?: string; updatedAt: string; error?: string };
+  // Where the code came from, so the pipeline can fetch the whole repo again with larger limits.
+  source?: { kind: "github"; url: string };
+  // The owner asked for daily rescans (new advisories are checked against the same code).
+  watch?: boolean;
+  // New findings from scheduled rescans, newest first.
+  alerts?: { at: string; title: string; severity: string; detail: string }[];
 }
 
 export interface Store {
@@ -79,7 +86,11 @@ export function createLocalStore(baseDir: string): Store {
   };
 }
 
-export function createDynamoStore(): Store {
+/**
+ * DynamoDB holds every record. One whose gzip is over the 400 KB item limit (a big repo scanned in
+ * full) goes to the artifacts bucket instead, with a pointer item in DynamoDB, when a bucket is set.
+ */
+export function createDynamoStore(artifacts: Artifacts | null = artifactsFromEnv()): Store {
   const client = new DynamoDBClient({});
   const doc = DynamoDBDocumentClient.from(client);
   const table = process.env.TABLE_NAME;
@@ -88,11 +99,22 @@ export function createDynamoStore(): Store {
     kind: "dynamo",
     async get(id: string): Promise<ScanRecord | null> {
       const out = await doc.send(new GetCommand({ TableName: table, Key: { id } }));
-      return out.Item ? (JSON.parse(gunzipSync(out.Item.blob as Uint8Array).toString("utf8")) as ScanRecord) : null;
+      if (!out.Item) return null;
+      if (typeof out.Item.s3Key === "string") {
+        if (!artifacts) throw new Error("record is stored in S3 but ARTIFACTS_BUCKET is not set");
+        return artifacts.getJson<ScanRecord>(out.Item.s3Key);
+      }
+      return JSON.parse(gunzipSync(out.Item.blob as Uint8Array).toString("utf8")) as ScanRecord;
     },
     async put(id: string, record: ScanRecord): Promise<void> {
       const blob = gzipSync(JSON.stringify(record));
-      if (blob.length > MAX_ITEM_BYTES) throw new RecordTooLargeError("this repo is too large to store; try a smaller repo");
+      if (blob.length > MAX_ITEM_BYTES) {
+        if (!artifacts) throw new RecordTooLargeError("this repo is too large to store; try a smaller repo");
+        const s3Key = `records/${id}.json.gz`;
+        await artifacts.putJson(s3Key, record, { gzip: true });
+        await doc.send(new PutCommand({ TableName: table, Item: { id, s3Key, expiresAt: ttlSeconds() } }));
+        return;
+      }
       await doc.send(new PutCommand({ TableName: table, Item: { id, blob, expiresAt: ttlSeconds() } }));
     },
   };

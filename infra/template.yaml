@@ -2,25 +2,59 @@ AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 
 Description: >
-  Siidekick: HTTP API (Lambda + DynamoDB) plus a private static site fronted by
-  CloudFront. All resources are AWS free-tier friendly at demo traffic.
-  Bedrock is not used.
+  Siidekick on AWS. HTTP API (API Gateway + Lambda + DynamoDB) and a private static site behind
+  CloudFront, plus the remediation pipeline: Step Functions runs prepare -> explain (Amazon
+  Bedrock) -> propose -> verify (AWS CodeBuild, isolated install/build/tests/Trivy) -> collect,
+  with artifacts in S3, daily rescans from EventBridge, alerts through SNS and CloudWatch alarms.
 
 Parameters:
   CloudFrontDomain:
     Type: String
     Description: >
-      CloudFront domain name (e.g. d1234567890.cloudfront.net). Added to the
-      HttpApi CORS allow list so the dashboard can call the API.
+      CloudFront domain name (e.g. d1234567890.cloudfront.net). Added to the HttpApi CORS allow
+      list so the dashboard can call the API.
   ExistingRoleArn:
     Type: String
     Default: ""
     Description: >
-      ARN of a pre-made Lambda role in an AWS Learner Lab account, for example
-      arn:aws:iam::<account-id>:role/LabRole.
+      ARN of a pre-made role in an AWS Learner Lab account (arn:aws:iam::<account-id>:role/LabRole).
+      When set, every function, the state machine and CodeBuild use it, because Learner Lab cannot
+      create roles. When empty, the template creates least-privilege roles instead.
+  BedrockModelId:
+    Type: String
+    Default: amazon.nova-lite-v1:0
+    Description: >
+      Bedrock model (or inference profile) for finding explanations, called through the Converse
+      API. Model access must be enabled in the Bedrock console. Empty turns explanations off.
+  VerifyUntrustedRepos:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: >
+      "true" runs install, build and tests of every scanned repo in CodeBuild. Leave "false" unless
+      CodeBuild has a role with no other permissions: by default only the bundled demo shop runs.
+  AlertEmail:
+    Type: String
+    Default: ""
+    Description: Optional email address subscribed to pipeline failures and new findings from daily rescans.
 
 Conditions:
   UseExistingRole: !Not [!Equals [!Ref ExistingRoleArn, ""]]
+  CreateRoles: !Equals [!Ref ExistingRoleArn, ""]
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, ""]]
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Architectures:
+      - arm64
+    Tracing: Active
+    Environment:
+      Variables:
+        STORAGE: dynamo
+        TABLE_NAME: !Ref ScansTable
+        ARTIFACTS_BUCKET: !Ref ArtifactsBucket
+        NODE_OPTIONS: --enable-source-maps
 
 Resources:
   # ------------------------------------------------------------------
@@ -31,7 +65,7 @@ Resources:
     Properties:
       Name: siidekick-api
       Description: Siidekick scanning API
-      # Scans are unauthenticated; cap request rate so nobody can run up the Lambda bill.
+      # Scans are unauthenticated; cap request rate so nobody can run up the bill.
       DefaultRouteSettings:
         ThrottlingBurstLimit: 20
         ThrottlingRateLimit: 5
@@ -49,7 +83,7 @@ Resources:
         MaxAge: 300
 
   # ------------------------------------------------------------------
-  # Lambda: pure router + local adapter, engine source inlined by esbuild
+  # Lambda: the API (router + engine, bundled by esbuild)
   # ------------------------------------------------------------------
   ApiFunction:
     Type: AWS::Serverless::Function
@@ -58,33 +92,430 @@ Resources:
       Description: Siidekick HTTP API
       CodeUri: ../apps/api/dist
       Handler: lambda.handler
-      Runtime: nodejs22.x
-      Architectures:
-        - arm64
-      MemorySize: 512
+      MemorySize: 1024
       Timeout: 30
       Environment:
         Variables:
-          STORAGE: dynamo
-          TABLE_NAME: !Ref ScansTable
+          PIPELINE_ARN: !Ref PipelineStateMachine
       Role: !If [UseExistingRole, !Ref ExistingRoleArn, !Ref AWS::NoValue]
       Policies: !If
         - UseExistingRole
         - !Ref AWS::NoValue
-        - - Version: "2012-10-17"
+        - - DynamoDBCrudPolicy:
+              TableName: !Ref ScansTable
+          - S3CrudPolicy:
+              BucketName: !Ref ArtifactsBucket
+          - Version: "2012-10-17"
             Statement:
               - Effect: Allow
-                Action:
-                  - dynamodb:PutItem
-                  - dynamodb:GetItem
-                  - dynamodb:UpdateItem
-                  - dynamodb:DeleteItem
-                Resource: !GetAtt ScansTable.Arn
+                Action: states:StartExecution
+                Resource: !Ref PipelineStateMachine
       Events:
         ApiEvent:
           Type: HttpApi
           Properties:
             ApiId: !Ref HttpApi
+
+  # ------------------------------------------------------------------
+  # Lambda: pipeline stages (prepare, explain, propose, collect, fail) and the daily rescan
+  # ------------------------------------------------------------------
+  PipelineFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: siidekick-pipeline
+      Description: Siidekick remediation pipeline stages
+      CodeUri: ../apps/api/dist
+      Handler: pipeline.handler
+      # Full scans read whole repos (up to 80 MB of text) and run every check.
+      MemorySize: 3008
+      Timeout: 900
+      Environment:
+        Variables:
+          BEDROCK_MODEL_ID: !Ref BedrockModelId
+          VERIFY_UNTRUSTED: !Ref VerifyUntrustedRepos
+          ALERT_TOPIC_ARN: !Ref AlertTopic
+      Role: !If [UseExistingRole, !Ref ExistingRoleArn, !Ref AWS::NoValue]
+      Policies: !If
+        - UseExistingRole
+        - !Ref AWS::NoValue
+        - - DynamoDBCrudPolicy:
+              TableName: !Ref ScansTable
+          - S3CrudPolicy:
+              BucketName: !Ref ArtifactsBucket
+          - SNSPublishMessagePolicy:
+              TopicName: !GetAtt AlertTopic.TopicName
+          - Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/*"
+                  - !Sub "arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/*"
+      Events:
+        DailyRescan:
+          # EventBridge rule (no role needed: it invokes the function through a resource policy).
+          Type: Schedule
+          Properties:
+            Name: siidekick-daily-rescan
+            Description: Recheck watched scans against today's advisories
+            Schedule: rate(1 day)
+            Input: '{"stage":"rescan"}'
+
+  # ------------------------------------------------------------------
+  # CodeBuild: isolated verification of the proposed patches
+  # ------------------------------------------------------------------
+  VerifyLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /siidekick/verify
+      RetentionInDays: 14
+
+  VerifyRole:
+    Type: AWS::IAM::Role
+    Condition: CreateRoles
+    Properties:
+      Description: CodeBuild for Siidekick verify. Reads and writes only its own S3 objects and logs.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: verify-minimal
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  - !Sub "${ArtifactsBucket.Arn}/verify/*"
+                  - !Sub "${ArtifactsBucket.Arn}/runner/*"
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub "${ArtifactsBucket.Arn}/verify/*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt VerifyLogGroup.Arn
+
+  VerifyProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: siidekick-verify
+      Description: Installs, builds, tests and Trivy-scans the original and patched repo (untrusted code; no credentials passed to it).
+      ServiceRole: !If [UseExistingRole, !Ref ExistingRoleArn, !GetAtt VerifyRole.Arn]
+      TimeoutInMinutes: 25
+      QueuedTimeoutInMinutes: 30
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:7.0
+        EnvironmentVariables:
+          - Name: BUCKET
+            Value: !Ref ArtifactsBucket
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName: !Ref VerifyLogGroup
+      Source:
+        Type: NO_SOURCE
+        BuildSpec: |
+          version: 0.2
+          env:
+            shell: bash
+          phases:
+            install:
+              runtime-versions:
+                nodejs: 20
+              commands:
+                # Trivy, pinned and checked against the release's published SHA-256 (no curl | sh).
+                - |
+                  V=0.58.1
+                  F="trivy_${V}_Linux-64bit.tar.gz"
+                  BASE="https://github.com/aquasecurity/trivy/releases/download/v${V}"
+                  if curl -fsSLo "/tmp/${F}" "${BASE}/${F}" && curl -fsSLo /tmp/trivy_checksums.txt "${BASE}/trivy_${V}_checksums.txt" \
+                     && (cd /tmp && grep " ${F}\$" trivy_checksums.txt | sha256sum -c -); then
+                    tar -xzf "/tmp/${F}" -C /usr/local/bin trivy && trivy --version
+                  else
+                    echo "Trivy unavailable; continuing without the independent scan"
+                  fi
+            build:
+              commands:
+                - aws s3 cp "s3://${BUCKET}/runner/runner.mjs" /tmp/runner.mjs
+                - node /tmp/runner.mjs
+
+  # ------------------------------------------------------------------
+  # Step Functions: the pipeline
+  # ------------------------------------------------------------------
+  PipelineLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /siidekick/pipeline
+      RetentionInDays: 14
+
+  PipelineStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: siidekick-pipeline
+      Type: STANDARD
+      Tracing:
+        Enabled: true
+      Logging:
+        Level: ERROR
+        IncludeExecutionData: false
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt PipelineLogGroup.Arn
+      Role: !If [UseExistingRole, !Ref ExistingRoleArn, !Ref AWS::NoValue]
+      Policies: !If
+        - UseExistingRole
+        - !Ref AWS::NoValue
+        - - LambdaInvokePolicy:
+              FunctionName: !Ref PipelineFunction
+          - Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - codebuild:StartBuild
+                  - codebuild:StopBuild
+                  - codebuild:BatchGetBuilds
+                Resource: !GetAtt VerifyProject.Arn
+              - Effect: Allow
+                Action:
+                  - events:PutTargets
+                  - events:PutRule
+                  - events:DescribeRule
+                Resource: !Sub "arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/StepFunctionsGetEventForCodeBuildStartBuildRule"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogDelivery
+                  - logs:GetLogDelivery
+                  - logs:UpdateLogDelivery
+                  - logs:DeleteLogDelivery
+                  - logs:ListLogDeliveries
+                  - logs:PutResourcePolicy
+                  - logs:DescribeResourcePolicies
+                  - logs:DescribeLogGroups
+                  - xray:PutTraceSegments
+                  - xray:PutTelemetryRecords
+                  - xray:GetSamplingRules
+                  - xray:GetSamplingTargets
+                Resource: "*"
+      DefinitionSubstitutions:
+        PipelineFunctionArn: !GetAtt PipelineFunction.Arn
+        VerifyProjectName: !Ref VerifyProject
+      Definition:
+        Comment: Siidekick remediation pipeline for one scan
+        StartAt: Prepare
+        States:
+          Prepare:
+            Type: Task
+            Resource: arn:aws:states:::lambda:invoke
+            Parameters:
+              FunctionName: ${PipelineFunctionArn}
+              Payload:
+                stage: prepare
+                state.$: $
+            OutputPath: $.Payload
+            Retry:
+              - ErrorEquals: [Lambda.ServiceException, Lambda.AWSLambdaException, Lambda.SdkClientException, Lambda.TooManyRequestsException]
+                IntervalSeconds: 2
+                MaxAttempts: 3
+                BackoffRate: 2
+            Catch:
+              - ErrorEquals: [States.ALL]
+                ResultPath: $.error
+                Next: MarkFailed
+            Next: Explain
+          Explain:
+            Type: Task
+            Resource: arn:aws:states:::lambda:invoke
+            Parameters:
+              FunctionName: ${PipelineFunctionArn}
+              Payload:
+                stage: explain
+                state.$: $
+            OutputPath: $.Payload
+            Retry:
+              - ErrorEquals: [Lambda.ServiceException, Lambda.AWSLambdaException, Lambda.SdkClientException, Lambda.TooManyRequestsException]
+                IntervalSeconds: 2
+                MaxAttempts: 3
+                BackoffRate: 2
+            # Explanations are a bonus: if Bedrock is unavailable, carry on without them.
+            Catch:
+              - ErrorEquals: [States.ALL]
+                ResultPath: $.explainError
+                Next: Propose
+            Next: Propose
+          Propose:
+            Type: Task
+            Resource: arn:aws:states:::lambda:invoke
+            Parameters:
+              FunctionName: ${PipelineFunctionArn}
+              Payload:
+                stage: propose
+                state.$: $
+            OutputPath: $.Payload
+            Retry:
+              - ErrorEquals: [Lambda.ServiceException, Lambda.AWSLambdaException, Lambda.SdkClientException, Lambda.TooManyRequestsException]
+                IntervalSeconds: 2
+                MaxAttempts: 3
+                BackoffRate: 2
+            Catch:
+              - ErrorEquals: [States.ALL]
+                ResultPath: $.error
+                Next: MarkFailed
+            Next: ShouldVerify
+          ShouldVerify:
+            Type: Choice
+            Choices:
+              - Variable: $.verify
+                BooleanEquals: true
+                Next: Verify
+            Default: Collect
+          Verify:
+            Type: Task
+            Resource: arn:aws:states:::codebuild:startBuild.sync
+            Parameters:
+              ProjectName: ${VerifyProjectName}
+              EnvironmentVariablesOverride:
+                - Name: ORIGINAL_KEY
+                  Type: PLAINTEXT
+                  Value.$: $.originalKey
+                - Name: PATCHED_KEY
+                  Type: PLAINTEXT
+                  Value.$: $.patchedKey
+                - Name: RESULT_KEY
+                  Type: PLAINTEXT
+                  Value.$: $.resultKey
+            ResultSelector:
+              id.$: $.Build.Id
+              status.$: $.Build.BuildStatus
+            ResultPath: $.build
+            TimeoutSeconds: 1800
+            # A failed build is recorded by collect (no result file), not treated as a pipeline failure.
+            Catch:
+              - ErrorEquals: [States.ALL]
+                ResultPath: $.verifyError
+                Next: Collect
+            Next: Collect
+          Collect:
+            Type: Task
+            Resource: arn:aws:states:::lambda:invoke
+            Parameters:
+              FunctionName: ${PipelineFunctionArn}
+              Payload:
+                stage: collect
+                state.$: $
+            OutputPath: $.Payload
+            Retry:
+              - ErrorEquals: [Lambda.ServiceException, Lambda.AWSLambdaException, Lambda.SdkClientException, Lambda.TooManyRequestsException]
+                IntervalSeconds: 2
+                MaxAttempts: 3
+                BackoffRate: 2
+            Catch:
+              - ErrorEquals: [States.ALL]
+                ResultPath: $.error
+                Next: MarkFailed
+            Next: Done
+          Done:
+            Type: Succeed
+          MarkFailed:
+            Type: Task
+            Resource: arn:aws:states:::lambda:invoke
+            Parameters:
+              FunctionName: ${PipelineFunctionArn}
+              Payload:
+                stage: fail
+                state.$: $
+            Next: Failed
+          Failed:
+            Type: Fail
+            Error: PipelineFailed
+            Cause: A pipeline stage failed; the scan record holds the error.
+
+  # ------------------------------------------------------------------
+  # Alerts: SNS topic + CloudWatch alarms
+  # ------------------------------------------------------------------
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: siidekick-alerts
+      DisplayName: Siidekick
+
+  AlertSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlertEmail
+    Properties:
+      TopicArn: !Ref AlertTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  PipelineFailedAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: siidekick-pipeline-failed
+      AlarmDescription: A Siidekick pipeline execution failed.
+      Namespace: AWS/States
+      MetricName: ExecutionsFailed
+      Dimensions:
+        - Name: StateMachineArn
+          Value: !Ref PipelineStateMachine
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlertTopic
+
+  ApiErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: siidekick-api-errors
+      AlarmDescription: The Siidekick API Lambda is throwing errors.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlertTopic
+
+  ApiServerErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: siidekick-api-5xx
+      AlarmDescription: The HTTP API is returning 5xx answers.
+      Namespace: AWS/ApiGateway
+      MetricName: 5xx
+      Dimensions:
+        - Name: ApiId
+          Value: !Ref HttpApi
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 10
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlertTopic
 
   # ------------------------------------------------------------------
   # DynamoDB: scan records, TTL after 7 days via expiresAt
@@ -105,12 +536,63 @@ Resources:
         Enabled: true
 
   # ------------------------------------------------------------------
+  # S3: pipeline artifacts (snapshots, oversized records, verify results, reports, SBOMs)
+  # ------------------------------------------------------------------
+  ArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "siidekick-artifacts-${AWS::AccountId}-${AWS::Region}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      LifecycleConfiguration:
+        Rules:
+          # Same lifetime as scan records; the verify runner and watch index are rewritten on use.
+          - Id: expire-scan-data
+            Status: Enabled
+            ExpirationInDays: 8
+            Prefix: ""
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 1
+
+  ArtifactsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ArtifactsBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyPlainHttp
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt ArtifactsBucket.Arn
+              - !Sub "${ArtifactsBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
+  # ------------------------------------------------------------------
   # S3: private bucket holding the web build
   # ------------------------------------------------------------------
   WebBucket:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Sub "siidekick-web-${AWS::AccountId}-${AWS::Region}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         BlockPublicPolicy: true
@@ -158,10 +640,13 @@ Resources:
         Comment: Siidekick static site and API
         Enabled: true
         DefaultRootObject: index.html
+        HttpVersion: http2and3
         Origins:
           - Id: S3Origin
             DomainName: !GetAtt WebBucket.RegionalDomainName
             OriginAccessControlId: !GetAtt OriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ""
           - Id: ApiOrigin
             DomainName: !Sub "${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
             CustomOriginConfig:
@@ -178,6 +663,8 @@ Resources:
             - GET
             - HEAD
           Compress: true
+          ForwardedValues:
+            QueryString: false
         CacheBehaviors:
           - PathPattern: /api/*
             TargetOriginId: ApiOrigin
@@ -186,6 +673,9 @@ Resources:
               - GET
               - HEAD
               - POST
+              - PUT
+              - PATCH
+              - DELETE
               - OPTIONS
             CachedMethods:
               - GET
@@ -196,6 +686,9 @@ Resources:
                 - content-type
               Cookies:
                 Forward: none
+            MinTTL: 0
+            DefaultTTL: 0
+            MaxTTL: 0
         CustomErrorResponses:
           - ErrorCode: 403
             ResponseCode: 200
@@ -214,3 +707,15 @@ Outputs:
   BucketName:
     Description: S3 bucket for the web build
     Value: !Ref WebBucket
+  ArtifactsBucketName:
+    Description: S3 bucket for pipeline artifacts (the deploy script uploads the verify runner here)
+    Value: !Ref ArtifactsBucket
+  PipelineArn:
+    Description: Step Functions state machine
+    Value: !Ref PipelineStateMachine
+  VerifyProjectName:
+    Description: CodeBuild project for isolated verification
+    Value: !Ref VerifyProject
+  AlertTopicArn:
+    Description: SNS topic for pipeline failures and new findings
+    Value: !Ref AlertTopic

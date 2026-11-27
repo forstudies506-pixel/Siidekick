@@ -1,8 +1,24 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2, Context, Handler } from "aws-lambda";
+import { SFNClient, StartExecutionCommand } from "@aws-sdk/client-sfn";
 import { makeRouter } from "./router.js";
 import { createStore } from "./store.js";
+import { artifactsFromEnv } from "./artifacts.js";
 
-const router = makeRouter({ store: createStore() });
+const pipelineArn = process.env.PIPELINE_ARN;
+const sfn = pipelineArn ? new SFNClient({}) : null;
+
+const router = makeRouter({
+  store: createStore(),
+  artifacts: artifactsFromEnv() ?? undefined,
+  startPipeline: sfn
+    ? async (scanId) => {
+        const out = await sfn.send(
+          new StartExecutionCommand({ stateMachineArn: pipelineArn, name: `scan-${scanId}-${Date.now()}`, input: JSON.stringify({ scanId }) }),
+        );
+        return out.executionArn!;
+      }
+    : undefined,
+});
 
 function headers(): Record<string, string> {
   return {

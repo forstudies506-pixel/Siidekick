@@ -31,7 +31,10 @@ deploy() {
     --no-fail-on-empty-changeset \
     --parameter-overrides \
     "CloudFrontDomain=$1" \
-    "ExistingRoleArn=${ROLE_ARN}"
+    "ExistingRoleArn=${ROLE_ARN}" \
+    "BedrockModelId=${BEDROCK_MODEL_ID:-amazon.nova-lite-v1:0}" \
+    "VerifyUntrustedRepos=${VERIFY_UNTRUSTED:-false}" \
+    "AlertEmail=${ALERT_EMAIL:-}"
 }
 
 output() {
@@ -52,8 +55,11 @@ OUTPUTS="$(aws cloudformation describe-stacks \
   --output json)"
 
 BUCKET_NAME="$(output BucketName)"
+ARTIFACTS_BUCKET="$(output ArtifactsBucketName)"
 
 aws s3 sync apps/web/dist "s3://${BUCKET_NAME}" --delete
+# CodeBuild downloads the verify runner from the artifacts bucket at the start of every build.
+aws s3 cp infra/verify/runner.mjs "s3://${ARTIFACTS_BUCKET}/runner/runner.mjs" --sse AES256
 
 echo "Deployed stack: siidekick"
 echo "${OUTPUTS}"
