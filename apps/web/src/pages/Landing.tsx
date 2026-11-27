@@ -264,8 +264,11 @@ export function Landing() {
       </main>
       <footer className="site-footer">
         <p className="limit-line">Siidekick reduces risk. No tool can promise an app is unhackable, and this one does not.</p>
+        <p className="team-credit">
+          Built by <strong>Schrödinger&apos;s Code</strong>, a part of Echelon Systems Architecture.
+        </p>
         <div>
-          <span>Live on Vercel. AWS Lambda build in the repo.</span>
+          <span>Live on AWS: CloudFront, Lambda, Bedrock, Step Functions and CodeBuild.</span>
           <a href="https://github.com/forstudies506-pixel/Siidekick" target="_blank" rel="noreferrer">
             Source on GitHub <ArrowUpRight size={14} aria-hidden="true" />
           </a>

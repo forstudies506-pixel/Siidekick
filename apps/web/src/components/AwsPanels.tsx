@@ -126,13 +126,27 @@ const STATUS_TEXT: Record<Verdict["status"], string> = {
 const STAGES = ["Upload before + after to S3", "Step Functions starts the workflow", "CodeBuild: npm install → npm test → npm audit", "Lambda applies the trust rule"];
 
 /** Runs the approved fixes in a throwaway AWS CodeBuild container and shows the trust-rule verdict. */
-export function VerifyPanel({ scanId, approved, features }: { scanId: string; approved: string[]; features: Features | null }) {
+export function VerifyPanel({
+  scanId,
+  approved,
+  features,
+  onStatus,
+}: {
+  scanId: string;
+  approved: string[];
+  features: Features | null;
+  /** Lets the Impact section chart the build's measurements. */
+  onStatus?: (s: VerifyStatus | null) => void;
+}) {
   const [jobId, setJobId] = useState<string | null>(null);
   const [status, setStatus] = useState<VerifyStatus | null>(null);
   const [error, setError] = useState("");
   const [starting, setStarting] = useState(false);
   const timer = useRef<number | undefined>(undefined);
   const approvedKey = [...approved].sort().join(",");
+  useEffect(() => {
+    onStatus?.(status);
+  }, [status, onStatus]);
 
   // Resume the last run for this scan after a reload.
   useEffect(() => {

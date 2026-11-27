@@ -333,6 +333,22 @@ export interface VerifyCheck {
   detail: string;
 }
 
+/** One copy (original or fixed) as the CodeBuild run measured it. */
+export interface BuildSide {
+  install?: { ok: boolean; code: number };
+  tests: { ran: boolean; passed?: boolean; tail?: string };
+  audit?: { ok: boolean; counts?: Record<string, number> };
+  ms?: number;
+  metrics?: {
+    installMs?: number;
+    testMs?: number;
+    auditMs?: number;
+    nodeModulesKb?: number;
+    packages?: number;
+    directDependencies?: number;
+  };
+}
+
 export interface Verdict {
   status: "verified" | "inconclusive" | "not-verified" | "regression" | "error";
   headline: string;
@@ -342,8 +358,8 @@ export interface Verdict {
   result?: {
     node?: string;
     npm?: string;
-    before: { tests: { ran: boolean; passed?: boolean; tail?: string }; ms?: number };
-    after: { tests: { ran: boolean; passed?: boolean; tail?: string }; ms?: number };
+    before: BuildSide;
+    after: BuildSide;
     lockfileRefreshed: boolean;
   };
   finishedAt: string;

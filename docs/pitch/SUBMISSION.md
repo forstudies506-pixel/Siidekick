@@ -50,6 +50,8 @@ https://github.com/forstudies506-pixel/Siidekick
 
 TODO(team)
 
-## Team names
+## Team
 
-TODO(team)
+**Schrödinger's Code**, a part of Echelon Systems Architecture.
+
+TODO(team): member names

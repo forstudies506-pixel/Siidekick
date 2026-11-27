@@ -47,6 +47,10 @@ Not used: **Amazon ECR**. The managed CodeBuild image already has Node 22, and a
 2. **The AI cannot invent facts.** Every Bedrock answer goes through an *evidence check*: any CVE or GHSA id, or any version number, that is not in the scan evidence gets the answer retried once, then rejected and labelled. This is the same idea as the diff guard, applied to text.
 3. **"Fixed" means proven.** The trust rule in `apps/api/src/verify.ts` labels a fix **verified** only when the fixed copy installs, the project's own tests pass, *and* an independent advisory source (`npm audit`, separate from the OSV.dev data the scan uses) no longer reports the flagged packages. A fix that breaks tests that passed before is flagged as a **regression**. A project with no tests is **inconclusive**, never verified.
 
+## Impact, measured
+
+The Verify & ship step ends with an **Impact** section drawn only from real data: the score before and after (from a rescan), failing checks by severity, `npm audit` counts from the CodeBuild run, the dependency tree turning from red to green, lines added and removed per fix, the AWS run's timeline, and **build metrics measured in CodeBuild** on both copies: installed packages, `node_modules` size, install time, test time. These are shown even when they get worse: the demo's express upgrade takes it from 51 to 69 installed packages and 5.7 to 6.9 MB, while vulnerable packages fall from 8 to 0. A downloadable impact card (PNG) carries the same numbers. A chart that has no data yet says so; nothing is estimated.
+
 ## Dependency intelligence
 
 Siidekick rebuilds the dependency graph from `package-lock.json` (each entry's declared dependencies, resolved the way Node resolves them) and shows how each vulnerable package gets in: `your app → express → body-parser`. A flat folder listing cannot show this, because npm hoists packages.

@@ -23,8 +23,10 @@ import {
   type PatchResponse,
   type ScanResponse,
   type Features,
+  type VerifyStatus,
 } from "../api/client";
 import { AI_LANGS, AiExplain, DependencyChain, PullRequestPanel, VerifyPanel } from "../components/AwsPanels";
+import { ImpactSection, downloadImpactCard } from "../components/Impact";
 import { checkHi, ui, type Lang } from "../i18n/hi";
 import { zipFiles } from "../zip";
 
@@ -722,6 +724,7 @@ export function Dashboard() {
   const [lang, setLang] = useState<Lang>("en");
   const [aiLang, setAiLang] = useState("hi");
   const [features, setFeatures] = useState<Features | null>(null);
+  const [verifyStatus, setVerifyStatus] = useState<VerifyStatus | null>(null);
   useEffect(() => {
     void getFeatures().then(setFeatures);
   }, []);
@@ -1649,6 +1652,17 @@ export function Dashboard() {
               </div>
             </div>
 
+            {(() => {
+              const impact = {
+                report,
+                summary: mock || patchResult.mock ? null : summary,
+                idealScore: patchResult.scoreAfter,
+                approvedPatches: patches.filter((e) => approved.includes(e.patch.id)),
+                verify: verifyStatus,
+              };
+              return <ImpactSection {...impact} onCard={() => void downloadImpactCard(impact)} />;
+            })()}
+
             {summary && summary.failing.length > 0 && (
               <section className="still-failing">
                 <h2>Still failing after your approvals</h2>
@@ -1694,7 +1708,7 @@ export function Dashboard() {
 
             {!mock && !patchResult.mock && scanId && (
               <>
-                <VerifyPanel key={`v-${scanId}`} scanId={scanId} approved={approved} features={features} />
+                <VerifyPanel key={`v-${scanId}`} scanId={scanId} approved={approved} features={features} onStatus={setVerifyStatus} />
                 <PullRequestPanel key={`pr-${scanId}`} scanId={scanId} approved={approved} />
               </>
             )}

@@ -23,6 +23,8 @@ ROOT="$(pwd)"
 OUT="$ROOT/out"
 mkdir -p "$OUT"
 
+ms() { date +%s%3N; }
+
 has_tests() {
   node -e 'const s=(require("./package.json").scripts||{}).test||"";process.exit(s&&!/no test specified/.test(s)?0:1)' 2>/dev/null
 }
@@ -31,6 +33,7 @@ run_side() {
   local side="$1" log="$OUT/$1"
   cd "$ROOT/$side" || return
   date +%s%3N > "$log.t0"
+  t=$(ms)
   if [ "$side" = "before" ] && [ -f package-lock.json ]; then
     timeout 300 npm ci --ignore-scripts --no-audit > "$log.install.txt" 2>&1
     code=$?
@@ -44,13 +47,21 @@ run_side() {
     code=$?
   fi
   echo $code > "$log.install.code"
+  echo $(( $(ms) - t )) > "$log.install.ms"
+  # Real, labelled build metrics: installed packages (from the lockfile npm just wrote) and node_modules size.
+  node -e 'try{const l=require("./package-lock.json");const p=Object.keys(l.packages||{}).filter(k=>k.startsWith("node_modules/"));const d=require("./package.json");const direct=Object.keys({...(d.dependencies||{}),...(d.devDependencies||{}),...(d.optionalDependencies||{})}).length;console.log(JSON.stringify({packages:p.length,direct}))}catch(e){console.log("{}")}' > "$log.deps.json" 2>/dev/null
+  du -sk node_modules 2>/dev/null | cut -f1 > "$log.nm.kb"
   if has_tests; then
+    t=$(ms)
     timeout 300 npm test > "$log.test.txt" 2>&1
     echo $? > "$log.test.code"
+    echo $(( $(ms) - t )) > "$log.test.ms"
   else
     echo none > "$log.test.code"
   fi
+  t=$(ms)
   timeout 120 npm audit --json > "$log.audit.json" 2> "$log.audit.err"
+  echo $(( $(ms) - t )) > "$log.audit.ms"
   date +%s%3N > "$log.t1"
   cd "$ROOT"
 }
@@ -86,7 +97,18 @@ function side(name) {
   const installCode = Number(read(o + ".install.code"));
   const testCode = (read(o + ".test.code") || "").trim();
   const t0 = Number(read(o + ".t0")), t1 = Number(read(o + ".t1"));
+  const num = (f) => { const v = Number((read(o + f) || "").trim()); return Number.isFinite(v) && (read(o + f) || "").trim() !== "" ? v : undefined; };
+  let deps = {};
+  try { deps = JSON.parse(read(o + ".deps.json") || "{}"); } catch {}
   return {
+    metrics: {
+      installMs: num(".install.ms"),
+      testMs: num(".test.ms"),
+      auditMs: num(".audit.ms"),
+      nodeModulesKb: num(".nm.kb"),
+      packages: typeof deps.packages === "number" ? deps.packages : undefined,
+      directDependencies: typeof deps.direct === "number" ? deps.direct : undefined,
+    },
     install: { ok: installCode === 0, code: installCode, tail: tail(read(o + ".install.txt")) },
     tests: testCode === "none" ? { ran: false } : { ran: true, code: Number(testCode), passed: Number(testCode) === 0, tail: tail(read(o + ".test.txt")) },
     audit: audit(read(o + ".audit.json")),
@@ -111,6 +133,16 @@ export interface SideResult {
     packages: Record<string, { severity: string; isDirect: boolean; via: string[]; fixAvailable: boolean }>;
   };
   ms?: number;
+  /** Measured in the build, per copy. A field is missing when that step did not run or could not be measured. */
+  metrics?: {
+    installMs?: number;
+    testMs?: number;
+    auditMs?: number;
+    nodeModulesKb?: number;
+    /** Installed packages, direct and transitive, from the lockfile npm wrote. */
+    packages?: number;
+    directDependencies?: number;
+  };
 }
 
 export interface BuildResult {
