@@ -34,6 +34,8 @@ Built for the Campus to Cloud Hackathon (AWS, Techfest 2026-27) for small shops,
 - **See how a bad package gets in**: the dependency path from `package-lock.json`, e.g. `your app → express → body-parser`.
 - **Prove the fix** (AWS build): Step Functions runs your original and fixed code in a throwaway CodeBuild container (npm install, your tests, an independent npm audit). "Verified" only when tests pass and the flagged packages are gone. A fix that breaks your tests is caught as a regression.
 - **Open a pull request** with the fixes and the verification evidence (GitHub scans; your token is used once, never stored).
+- **Keep watching every pull request** with the [Siidekick GitHub Action](action/README.md): findings as annotations on the changed lines plus a job summary. The CI workflow Siidekick adds includes it.
+- **See an attack fail:** on the demo shop, the replay fires a fake Razorpay payment at the app before and after the fix (accepted, then rejected with 400), with a correctly signed payment as the control.
 
 The full list of checks comes from the engine: `curl -s https://siidekick.ashforge.cv/api/checks`.
 

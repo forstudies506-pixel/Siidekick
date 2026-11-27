@@ -48,31 +48,33 @@ describe("payment-verification", () => {
     expect(f.map((x) => x.title)).toEqual(["Payment status taken from the request instead of the gateway"]);
   });
 
-  it("adds a guard-passed helper but keeps failing until the route calls it", async () => {
-    const ctx = repo([{ path: "package.json", content: '{"name":"shop"}' }, { path: "server.js", content: unverified }]);
+  it("adds the helper and wires it into the route with added lines only, so the check passes", async () => {
+    const withRequire = `const express = require('express');\nconst orders = require('./orders');\n${unverified}`;
+    const ctx = repo([{ path: "package.json", content: '{"name":"shop"}' }, { path: "routes/pay.js", content: withRequire }]);
     const patch = await paymentVerification.fix!(ctx, await paymentVerification.detect(ctx));
     expect(patch?.class).toBe("additive");
-    expect(guardPatch(ctx.repo, patch!).ok).toBe(true);
+    const guard = guardPatch(ctx.repo, patch!);
+    expect(guard.ok).toBe(true);
+    expect(guard.removed).toBe(0);
     const helper = patch!.edits[0].kind === "create" ? patch!.edits[0].content : "";
     expect(helper).toContain('crypto.createHmac("sha256", secret)');
     expect(helper).toContain("timingSafeEqual");
     const fixed = applyPatch(ctx.repo, patch!);
-    expect(await paymentVerification.detect({ repo: fixed })).toHaveLength(1); // honest: not wired in yet
-    const wired = {
-      ...fixed,
-      files: fixed.files.map((f) =>
-        f.path === "server.js" ? { ...f, content: f.content.replace("orders.markPaid", "if (!verifyRazorpaySignature(req.body)) return res.sendStatus(400);\n  orders.markPaid") } : f,
-      ),
-    };
-    expect(await paymentVerification.detect({ repo: wired })).toEqual([]);
+    const route = fixed.files.find((f) => f.path === "routes/pay.js")!.content.split("\n");
+    expect(route.at(2)).toBe("const verifyRazorpaySignature = require('../lib/verifyRazorpaySignature');"); // under the existing requires
+    expect(route.at(4)).toBe("  if (!verifyRazorpaySignature(req.body)) { res.status(400).json({ error: 'payment not verified' }); return; }");
+    expect(route.at(5)).toContain("razorpay_payment_id"); // guard sits right before the line that reads the id
+    expect(await paymentVerification.detect({ repo: fixed })).toEqual([]);
   });
 
-  it("writes an ES module helper for type: module projects", async () => {
-    const ctx = repo([{ path: "package.json", content: '{"type":"module"}' }, { path: "server.js", content: unverified }]);
+  it("writes ES module code for type: module projects", async () => {
+    const ctx = repo([{ path: "package.json", content: '{"type":"module"}' }, { path: "server.js", content: `import express from "express";\n${unverified}` }]);
     const patch = await paymentVerification.fix!(ctx, await paymentVerification.detect(ctx));
     const helper = patch!.edits[0].kind === "create" ? patch!.edits[0].content : "";
     expect(helper).toContain('import crypto from "node:crypto"');
     expect(helper).toContain("export default verifyRazorpaySignature");
+    const route = patch!.edits[1].kind === "modify" ? patch!.edits[1].after : "";
+    expect(route.split("\n").at(1)).toBe('import verifyRazorpaySignature from "./lib/verifyRazorpaySignature.js";');
   });
 });
 

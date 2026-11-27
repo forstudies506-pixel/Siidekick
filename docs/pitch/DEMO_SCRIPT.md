@@ -1,5 +1,8 @@
 # Siidekick 3-Minute Demo (AWS build)
 
+> **Superseded (28 Nov 2026):** record from the cinematic script, https://claude.ai/artifact/CMg8Q96Gjt9qzb4bAxVA58. It covers the Bharat Pack, the India lens, the Impact section, the fake-payment replay and the GitHub Action. The notes below are the older version.
+
+
 Record on the **CloudFront URL** from `scripts/deploy.sh`. Before recording:
 
 - Open `/api/health` once so Lambda is warm, and check `"ai"` is set and `"verify": true`.

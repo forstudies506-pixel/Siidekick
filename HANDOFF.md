@@ -31,6 +31,8 @@ _Updated 2026-11-26 (phase 8)._ Read `BRAIN.md`, `AGENTS.md`, then this.
 
 - Phase 12: **Bharat Pack + India lens.** New checks in `packages/engine/src/checks/bharat.ts` (group D-domain): `payment-verification` (Razorpay signature, Paytm/UPI callback status; template fix adds `lib/verifyRazorpaySignature.js`), `indian-pii` (Verhoeff-valid Aadhaar, PAN, identity data in logs; masked evidence), `otp-safety` (OTP in response, logged, Math.random). `secrets-in-repo` now recognises merchant key / salt / auth key names and labels Indian vendors. Demo flaws 13–16 (`lib/payments.js`, `lib/otp.js`, `lib/kyc.js`, never loaded by server.js; no real-looking Aadhaar committed). Dashboard India lens (`components/IndiaLens.tsx`, `bharat.ts`): DPDP-relevant count, CERT-In readiness, Bharat findings, DPDP row tags; playbook template gains a Report (India) section. Hindi titles for the new checks. Demo now starts at 33/100.
 
+- Phase 13: **Fake-payment replay + GitHub Action.** `payment-verification` now auto-wires: adds `lib/verifyRazorpaySignature.js` and inserts an import + a guard before the line reading `razorpay_payment_id` (added lines only). Demo mounts `lib/payments.js`; replay attack `fake-payment` (before: 200 pass issued; after: 400; control: an HMAC-signed payment with a per-run RAZORPAY_KEY_SECRET still gets its pass). `action/` = a dependency-free node24 Action that posts the repo's text files to the API (no .env, which is flagged locally), annotates findings, writes a job summary, `fail-on` input.
+
 ## Not done
 - Demo video, and the TODO(team) fields in `docs/pitch/SUBMISSION.md` (video link, team names).
 - AWS: live at https://d1ulntgja5qae0.cloudfront.net. Redeploy with `AWS_REGION=ap-southeast-2 bash scripts/deploy.sh`.

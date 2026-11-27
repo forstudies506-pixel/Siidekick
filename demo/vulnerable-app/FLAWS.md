@@ -21,6 +21,6 @@ Planted flaws in CampusKart, mapped to Siidekick check ids.
 | 15 | OTP login returns the OTP in the response, logs it, and makes it with `Math.random`; MSG91 auth key hardcoded | `lib/otp.js` | `otp-safety`, `secrets-in-repo` |
 | 16 | Student KYC logs Aadhaar, PAN and date of birth | `lib/kyc.js:10` | `indian-pii` |
 
-Flaws 9–16 live in files `server.js` never loads, so the running demo and its tests are unchanged. `assistant/` is outside the npm workspace glob and is never installed.
+Flaws 9–12 and 15–16 live in files `server.js` never loads. The payments router (flaws 13–14) is mounted by `server.js`, so the attack replay can fire a fake Razorpay payment at the running shop. `assistant/` is outside the npm workspace glob and is never installed.
 
 Flaws 13–16 are the Bharat Pack: mistakes specific to Indian payments, identity data and OTP logins. No real Aadhaar or PAN number appears anywhere in the repo.

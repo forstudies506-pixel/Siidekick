@@ -1,0 +1,31 @@
+name: Siidekick security scan
+description: >
+  Scans the repo with Siidekick on every push and pull request. Findings appear as annotations on the changed
+  lines and in the job summary, with a link to the full report, fixes and AI explanations in Indian languages.
+author: Schrödinger's Code
+branding:
+  icon: shield
+  color: orange
+
+inputs:
+  api-url:
+    description: Siidekick API to send the scan to.
+    default: https://d1ulntgja5qae0.cloudfront.net
+  path:
+    description: Folder to scan, relative to the repo root.
+    default: "."
+  fail-on:
+    description: >
+      Fail the job when a finding of this severity or worse is present: none, critical, high or medium.
+      Default none: findings are reported, the check stays green.
+    default: none
+
+outputs:
+  score:
+    description: Security score, 0 to 100.
+  scan-url:
+    description: Link to the full report on Siidekick.
+
+runs:
+  using: node24
+  main: index.mjs

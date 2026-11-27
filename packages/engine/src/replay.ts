@@ -5,7 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import type { RepoSnapshot } from "./types.js";
 import { writeRepo } from "./verify.js";
 
@@ -54,7 +54,7 @@ export interface ReplayReport {
 
 type Booted = { base: string; dir: string; stop: () => Promise<void> };
 // Loot carries a leaked credential between attacks inside one run. It is never returned or logged.
-type Ctx = { base: string; adminToken: string; loot: { email?: string; password?: string; takeover?: boolean } };
+type Ctx = { base: string; adminToken: string; paySecret: string; loot: { email?: string; password?: string; takeover?: boolean } };
 
 const REQUEST_TIMEOUT_MS = 3000;
 const BOOT_TIMEOUT_MS = 8000;
@@ -195,7 +195,35 @@ const attacks: Attack[] = [
       },
     },
   },
+  {
+    id: "fake-payment",
+    checkId: "payment-verification",
+    title: "Get a fest pass with a payment that never happened",
+    request: "POST /api/pay/verify with a made-up razorpay_payment_id and a forged signature",
+    async exploit(ctx) {
+      const res = await payVerify(ctx, { razorpay_order_id: "order_FAKE0000000001", razorpay_payment_id: "pay_FAKE0000000001", razorpay_signature: "forged" });
+      const body: { pass?: unknown } = res.ok ? await res.json().catch(() => ({})) : {};
+      return res.ok && body.pass
+        ? { exploited: true, detail: `${res.status}, pass issued for a payment that never happened` }
+        : { exploited: false, detail: `${res.status}, payment not accepted` };
+    },
+    control: {
+      label: "a real payment, signed by Razorpay, still gets its pass",
+      async run(ctx) {
+        const order = "order_REAL0000000001";
+        const payment = "pay_REAL0000000001";
+        const signature = createHmac("sha256", ctx.paySecret).update(`${order}|${payment}`).digest("hex");
+        const res = await payVerify(ctx, { razorpay_order_id: order, razorpay_payment_id: payment, razorpay_signature: signature });
+        const body: { pass?: unknown } = res.ok ? await res.json().catch(() => ({})) : {};
+        return res.ok && Boolean(body.pass);
+      },
+    },
+  },
 ];
+
+function payVerify(ctx: Ctx, body: Record<string, string>): Promise<Response> {
+  return req(ctx, "/api/pay/verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+}
 
 const KEY_RE = /\b\w*(?:KEY|SECRET|TOKEN)\w*\s*=\s*["']([^"'\s]{12,})["']/;
 
@@ -250,17 +278,18 @@ function nodeArgs(): string[] {
 }
 
 // The child gets only what it needs. No AWS credentials or other parent secrets reach the demo app.
-function childEnv(port: number, runtimeDir: string, adminToken: string): NodeJS.ProcessEnv {
-  return { PORT: String(port), NODE_PATH: runtimeDir, ADMIN_TOKEN: adminToken, NODE_NO_WARNINGS: "1" };
+// RAZORPAY_KEY_SECRET is a random value made for this run, so the control can sign a real-looking payment.
+function childEnv(port: number, runtimeDir: string, adminToken: string, paySecret = ""): NodeJS.ProcessEnv {
+  return { PORT: String(port), NODE_PATH: runtimeDir, ADMIN_TOKEN: adminToken, RAZORPAY_KEY_SECRET: paySecret, NODE_NO_WARNINGS: "1" };
 }
 
-async function boot(repo: RepoSnapshot, runtimeDir: string, adminToken: string): Promise<Booted> {
+async function boot(repo: RepoSnapshot, runtimeDir: string, adminToken: string, paySecret: string): Promise<Booted> {
   const dir = await mkdtemp(join(tmpdir(), "siidekick-replay-"));
   await writeRepo(repo, dir);
   const port = await freePort();
   const child = spawn(process.execPath, [...nodeArgs(), "server.js"], {
     cwd: dir,
-    env: childEnv(port, runtimeDir, adminToken),
+    env: childEnv(port, runtimeDir, adminToken, paySecret),
     stdio: ["ignore", "ignore", "pipe"],
   });
   let stderr = "";
@@ -326,8 +355,8 @@ async function safe<T>(fn: () => Promise<T>, fallback: (e: Error) => T): Promise
 type Probed = { probes: Probe[]; controls: (boolean | undefined)[]; takeover: boolean };
 
 // Controls run first, so the brute force cannot lock the real customer's login out of its own check.
-async function probeAll(b: Booted, adminToken: string, withControls: boolean): Promise<Probed> {
-  const ctx: Ctx = { base: b.base, adminToken, loot: {} };
+async function probeAll(b: Booted, adminToken: string, paySecret: string, withControls: boolean): Promise<Probed> {
+  const ctx: Ctx = { base: b.base, adminToken, paySecret, loot: {} };
   const controls: (boolean | undefined)[] = [];
   for (const a of attacks) controls.push(withControls ? await safe(() => a.control.run(ctx), () => false) : undefined);
   const probes: Probe[] = [];
@@ -399,7 +428,11 @@ export function sameFiles(a: RepoSnapshot, b: RepoSnapshot): boolean {
 export async function replayDemo(opts: { before: RepoSnapshot; after: RepoSnapshot; runtimeDir: string }): Promise<ReplayReport> {
   const started = Date.now();
   const adminToken = randomBytes(18).toString("hex");
-  const [b, a] = await Promise.allSettled([boot(opts.before, opts.runtimeDir, adminToken), boot(opts.after, opts.runtimeDir, adminToken)]);
+  const paySecret = randomBytes(18).toString("hex");
+  const [b, a] = await Promise.allSettled([
+    boot(opts.before, opts.runtimeDir, adminToken, paySecret),
+    boot(opts.after, opts.runtimeDir, adminToken, paySecret),
+  ]);
   if (b.status === "rejected" || a.status === "rejected") {
     if (b.status === "fulfilled") await b.value.stop();
     if (a.status === "fulfilled") await a.value.stop();
@@ -408,8 +441,8 @@ export async function replayDemo(opts: { before: RepoSnapshot; after: RepoSnapsh
   }
   try {
     const [pb, pa, tests] = await Promise.all([
-      probeAll(b.value, adminToken, false),
-      probeAll(a.value, adminToken, true),
+      probeAll(b.value, adminToken, paySecret, false),
+      probeAll(a.value, adminToken, paySecret, true),
       runTests(a.value.dir, opts.runtimeDir),
     ]);
     const receipts: AttackReceipt[] = attacks.map((atk, i) => ({

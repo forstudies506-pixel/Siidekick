@@ -57,6 +57,9 @@ app.post('/api/cart', (req, res) => {
   res.json({ cart });
 });
 
+// Fest-pass payments (lib/payments.js): Razorpay checkout and the Paytm/UPI callback.
+app.use(require('./lib/payments').router);
+
 app.get('/checkout', (req, res) => {
   res.json({ key: PAYMENT_API_KEY, note: 'configure payment provider' });
 });

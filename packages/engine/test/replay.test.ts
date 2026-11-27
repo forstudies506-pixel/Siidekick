@@ -35,8 +35,13 @@ describe("replayDemo", () => {
       "brute-force": "blocked",
       "cors-read": "blocked",
       clickjack: "blocked",
+      "fake-payment": "blocked", // the fix wires a Razorpay signature check into the route
       "secret-read": "blocked",
     });
+    const pay = report.attacks.find((a) => a.id === "fake-payment")!;
+    expect(pay.before.detail).toContain("pass issued for a payment that never happened");
+    expect(pay.after.detail).toMatch(/^400/);
+    expect(pay.control?.ok, "a correctly signed payment still gets its pass").toBe(true);
     for (const a of report.attacks) {
       expect(a.before.exploited, a.id).toBe(true);
       if (a.control) expect(a.control.ok, a.control.label).toBe(true);

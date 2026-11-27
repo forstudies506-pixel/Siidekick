@@ -3,7 +3,7 @@
  * UPI callbacks), Aadhaar and PAN numbers, and OTP logins appear in most Indian student, college and
  * small-business projects, and generic scanners do not look for how they go wrong.
  */
-import type { Check, Finding, Patch, RepoFile } from "../types.js";
+import type { Check, FileEdit, Finding, Patch, RepoFile } from "../types.js";
 import { CODE_EXT, lineAt } from "../util.js";
 
 const TEST_PATH = /(^|\/)(test|tests|__tests__)(\/|$)|\.(test|spec)\.[jt]sx?$/;
@@ -61,14 +61,60 @@ function paymentFindings(files: RepoFile[]): Finding[] {
   return out;
 }
 
-function verifyHelper(files: RepoFile[]): string {
+function isEsm(files: RepoFile[]): boolean {
   const pkg = files.find((f) => f.path === "package.json");
-  let esm = false;
   try {
-    esm = pkg ? (JSON.parse(pkg.content) as { type?: string }).type === "module" : false;
+    return pkg ? (JSON.parse(pkg.content) as { type?: string }).type === "module" : false;
   } catch {
-    esm = false;
+    return false;
   }
+}
+
+/** POSIX path from the file `from` to `to`, as require/import wants it ("./x", "../lib/x"). */
+function relPath(from: string, to: string): string {
+  const a = from.split("/").slice(0, -1);
+  const b = to.split("/");
+  let i = 0;
+  while (i < a.length && i < b.length - 1 && a.at(i) === b.at(i)) i++;
+  const up = a.length - i;
+  const rest = b.slice(i).join("/");
+  return up === 0 ? `./${rest}` : `${"../".repeat(up)}${rest}`;
+}
+
+const HELPER_PATH = "lib/verifyRazorpaySignature.js";
+
+/**
+ * Wires the check into one handler file with added lines only: an import under the existing ones, and a guard
+ * right before the line that reads razorpay_payment_id. Returns null when the shape is not one we can wire safely.
+ */
+function wireHandler(f: RepoFile, esm: boolean): FileEdit | null {
+  const m = RZP_HANDLER.exec(f.content);
+  if (!m) return null;
+  const lines = f.content.split("\n");
+  const at = lineAt(f.content, m.index) - 1;
+  const target = lines.at(at) ?? "";
+  // A one-line route (handler and body on the same line) has no safe place for a guard.
+  if (/\b(?:app|router)\.(?:post|get|all|put)\s*\(/.test(target) || !/\bres\./.test(f.content)) return null;
+  const indent = /^\s*/.exec(target)?.[0] ?? "";
+  const q = /require\('|from '/.test(f.content) ? "'" : '"';
+  const rel = relPath(f.path, HELPER_PATH);
+  const importLine = esm
+    ? `import verifyRazorpaySignature from ${q}${rel}${q};`
+    : `const verifyRazorpaySignature = require(${q}${rel.replace(/\.js$/, "")}${q});`;
+  const guard = `${indent}if (!verifyRazorpaySignature(req.body)) { res.status(400).json({ error: ${q}payment not verified${q} }); return; }`;
+  // After the last top-level import/require line, else at the top.
+  let last = -1;
+  lines.forEach((l, i) => {
+    if (esm ? /^import\s/.test(l) : /^(?:const|let|var)\s+[^=]+=\s*require\(/.test(l)) last = i;
+  });
+  const out = [...lines];
+  out.splice(at, 0, guard);
+  out.splice(last + 1, 0, importLine);
+  return { kind: "modify", path: f.path, before: f.content, after: out.join("\n") };
+}
+
+function verifyHelper(files: RepoFile[]): string {
+  const esm = isEsm(files);
   const body = `function verifyRazorpaySignature({ razorpay_order_id, razorpay_payment_id, razorpay_signature }, secret = process.env.RAZORPAY_KEY_SECRET) {
   if (!secret || !razorpay_order_id || !razorpay_payment_id || !razorpay_signature) return false;
   const expected = crypto.createHmac("sha256", secret).update(\`\${razorpay_order_id}|\${razorpay_payment_id}\`).digest("hex");
@@ -90,20 +136,22 @@ export const paymentVerification: Check = {
   group: "D-domain",
   title: "Online payments are verified on the server",
   severity: "critical",
-  mode: "template",
+  mode: "auto",
   detect: ({ repo }) => paymentFindings(repo.files),
   fix({ repo }, findings): Patch | null {
-    if (!findings.some((f) => f.title.startsWith("Razorpay"))) return null;
-    const path = "lib/verifyRazorpaySignature.js";
-    if (repo.files.some((f) => f.path === path)) return null;
+    const handlers = new Set(findings.filter((f) => f.title.startsWith("Razorpay") && f.file).map((f) => f.file as string));
+    if (handlers.size === 0 || repo.files.some((f) => f.path === HELPER_PATH)) return null;
+    const esm = isEsm(repo.files);
+    const wired = repo.files.filter((f) => handlers.has(f.path)).map((f) => wireHandler(f, esm)).filter((e): e is FileEdit => e !== null);
     return {
       id: "payment-verification-1",
       checkId: "payment-verification",
-      title: "Add a Razorpay signature check helper",
+      title: wired.length ? "Check Razorpay's signature before issuing the order" : "Add a Razorpay signature check helper",
       class: "additive",
-      reason:
-        "Adds verifyRazorpaySignature(), which recomputes Razorpay's HMAC with your key secret and compares it in constant time. Call it in the payment route before marking an order paid; until it is wired in, the check keeps failing.",
-      edits: [{ kind: "create", path, content: verifyHelper(repo.files) }],
+      reason: wired.length
+        ? "Adds verifyRazorpaySignature(), which recomputes Razorpay's HMAC over order_id|payment_id with RAZORPAY_KEY_SECRET and compares it in constant time, and calls it at the top of the payment route: a made-up payment id now gets 400 instead of a pass. Only lines are added; set RAZORPAY_KEY_SECRET in the environment."
+        : "Adds verifyRazorpaySignature(), which recomputes Razorpay's HMAC with your key secret and compares it in constant time. Call it in the payment route before marking an order paid; until it is wired in, the check keeps failing.",
+      edits: [{ kind: "create", path: HELPER_PATH, content: verifyHelper(repo.files) }, ...wired],
     };
   },
 };
