@@ -1386,6 +1386,8 @@ export function Dashboard() {
               </p>
             </div>
             <IndiaLens results={report.results} afterFailing={mock ? null : (summary?.failing ?? null)} />
+            <div className="findings-layout">
+            <aside className="findings-rail" aria-label="Filter findings">
             <div className="toolbar">
               <label className="search-box">
                 <span className="visually-hidden">Search checks</span>
@@ -1438,6 +1440,8 @@ export function Dashboard() {
             <p className="keys-hint" aria-hidden="true">
               <kbd>/</kbd> search <kbd>f</kbd> <kbd>p</kbd> <kbd>n</kbd> <kbd>a</kbd> filter <kbd>1</kbd>–<kbd>4</kbd> steps <kbd>Esc</kbd> clear
             </p>
+            </aside>
+            <div className="findings-main">
             {lang === "hi" && (
               <p className="hi-line" lang="hi">
                 {report.total} {ui.hi.of} <strong>{report.passed}</strong> {ui.hi.checksPass}
@@ -1472,10 +1476,12 @@ export function Dashboard() {
                   auto-fix template. The rest need a human.
                 </p>
                 <button type="button" className="button primary" onClick={() => go("fixes")}>
-                  Review fixes →
+                  Review fixes
                 </button>
               </div>
             )}
+            </div>
+            </div>
           </section>
         )}
 
