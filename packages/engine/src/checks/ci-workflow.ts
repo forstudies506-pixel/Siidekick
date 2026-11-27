@@ -10,6 +10,10 @@ on:
     branches: [main]
   pull_request:
 
+# Read-only token: this job only tests (ci-security flags workflows without this).
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
