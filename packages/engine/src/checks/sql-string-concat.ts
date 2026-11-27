@@ -1,5 +1,6 @@
 import type { Check, Finding } from "../types.js";
-import { CODE_EXT, lineAt, callArgs } from "../util.js";
+import { CODE_EXT, TEST_FILE, lineAt, callArgs } from "../util.js";
+import { analyseRepo } from "../analysis/taint.js";
 
 const SKIP = /(^|\/)node_modules\//;
 /** A statement shape, not a lone keyword, so URLs like '/api/update/' + id do not count. */
@@ -129,7 +130,7 @@ interface Hit {
 function findHits(files: { path: string; content: string }[]): Hit[] {
   const hits: Hit[] = [];
   for (const f of files) {
-    if (!CODE_EXT.test(f.path) || SKIP.test(f.path)) continue;
+    if (!CODE_EXT.test(f.path) || SKIP.test(f.path) || TEST_FILE.test(f.path)) continue;
     for (const m of f.content.matchAll(CALL)) {
       const open = m.index! + m[0].length - 1;
       const args = callArgs(f.content, open + 1);
@@ -158,17 +159,44 @@ export const sqlStringConcat: Check = {
   mode: "report",
 
   detect({ repo }): Finding[] {
-    return findHits(repo.files).map((h) => ({
-      checkId: "sql-string-concat",
-      title: "SQL built by string concatenation",
-      severity: "critical" as const,
-      file: h.file,
-      line: h.line,
-      evidence: `${h.call}(${h.firstArg.length > 120 ? h.firstArg.slice(0, 117) + "…" : h.firstArg})`,
-      explanation:
-        `Rewrite as ${h.rewrite}. String-built SQL lets a request change the query it receives (SQL injection); ` +
-        "keeping the query fixed with ? placeholders and passing values as arguments reduces that risk.",
-    }));
+    // Data flow: where request input provably reaches the query, and through which functions.
+    const flows = analyseRepo(repo).flows.filter((f) => f.category === "sql");
+    const flowAt = (file: string, line: number) => flows.find((f) => f.file === file && Math.abs(f.line - line) <= 1);
+    const trail = (f: { source: string; sourceFile: string; sourceLine: number; file: string; via: string[] }) =>
+      `Request input ${f.source} (${f.sourceFile === f.file ? `line ${f.sourceLine}` : `${f.sourceFile}:${f.sourceLine}`})${f.via.length ? ` via ${f.via.join(" → ")}` : ""} reaches this query. `;
+
+    const findings: Finding[] = findHits(repo.files).map((h) => {
+      const flow = flowAt(h.file, h.line);
+      return {
+        checkId: "sql-string-concat",
+        title: flow ? "Request input reaches SQL built by string concatenation" : "SQL built by string concatenation",
+        severity: "critical" as const,
+        file: h.file,
+        line: h.line,
+        evidence: `${h.call}(${h.firstArg.length > 120 ? h.firstArg.slice(0, 117) + "…" : h.firstArg})`,
+        explanation:
+          (flow ? trail(flow) : "") +
+          `Rewrite as ${h.rewrite}. String-built SQL lets a request change the query it receives (SQL injection); ` +
+          "keeping the query fixed with ? placeholders and passing values as arguments reduces that risk.",
+        remedy: h.rewrite,
+      };
+    });
+    // Flows the text pattern cannot see: a query built in one place and run in another.
+    for (const f of flows) {
+      if (findings.some((x) => x.file === f.file && Math.abs((x.line ?? 0) - f.line) <= 1)) continue;
+      findings.push({
+        checkId: "sql-string-concat",
+        title: "Request input reaches a SQL query",
+        severity: "critical",
+        file: f.file,
+        line: f.line,
+        evidence: f.sink,
+        explanation:
+          trail(f) +
+          "The input becomes part of the SQL text, so a request can change the query (SQL injection). Keep the query fixed with placeholders (? or $1) and pass values separately.",
+      });
+    }
+    return findings;
   },
   // Report-only per the brief: no fixer, the owner rewrites the query with placeholders.
 };

@@ -6,8 +6,13 @@ import { openCors } from "./open-cors.js";
 import { authOnEndpoints } from "./auth-on-endpoints.js";
 import { sqlStringConcat } from "./sql-string-concat.js";
 import { dependencyAudit } from "./dependency-audit.js";
+import { dataflowChecks } from "./dataflow.js";
+import { weakCrypto, insecureConfig } from "./hardening.js";
+import { dockerfileSecurity, ciSecurity, iacSecurity } from "./config-files.js";
+import { pythonSecurity } from "./python.js";
+import { supplyChain } from "./supply-chain.js";
 
-/** Group C security checks. Owner: opencode (WS-engine-security). One file per check, add it here. */
+/** Group C security checks. One file per check (or family), add it here. */
 export const securityChecks: Check[] = [
   secretsInRepo,
   securityHeaders,
@@ -16,4 +21,15 @@ export const securityChecks: Check[] = [
   authOnEndpoints,
   sqlStringConcat,
   dependencyAudit,
+  // Data flow: request input reaching dangerous calls (analysis/taint.ts)
+  ...dataflowChecks,
+  // Code that is unsafe on its own
+  weakCrypto,
+  insecureConfig,
+  pythonSecurity,
+  // Files around the code: containers, CI, cloud templates, dependency sources
+  dockerfileSecurity,
+  ciSecurity,
+  iacSecurity,
+  supplyChain,
 ];

@@ -66,9 +66,12 @@ function refreshLock(repo: RepoSnapshot): RepoSnapshot {
   };
 }
 
+// The original seven fixable security checks; the data-flow and config families have their own tests.
+const core = securityChecks.slice(0, 7);
+
 describe("security checks barrel", () => {
   it("registers the security checks with their declared severities and modes", () => {
-    expect(securityChecks.map((c) => ({ id: c.id, severity: c.severity, mode: c.mode }))).toEqual([
+    expect(core.map((c) => ({ id: c.id, severity: c.severity, mode: c.mode }))).toEqual([
       { id: "secrets-in-repo", severity: "critical", mode: "auto" },
       { id: "security-headers", severity: "high", mode: "auto" },
       { id: "rate-limit", severity: "high", mode: "auto" },
@@ -94,7 +97,7 @@ describe("security checks barrel", () => {
     const ctx = () => ({ repo, fetch: osvFetch });
 
     const before = Object.fromEntries(
-      await Promise.all(securityChecks.map(async (c) => [c.id, (await c.detect(ctx())).length])),
+      await Promise.all(core.map(async (c) => [c.id, (await c.detect(ctx())).length])),
     );
     expect(before).toEqual({
       "secrets-in-repo": 0,
@@ -106,7 +109,7 @@ describe("security checks barrel", () => {
       "dependency-audit": 1,
     });
 
-    for (const check of securityChecks) {
+    for (const check of core) {
       const findings = await check.detect(ctx());
       if (findings.length === 0 || check.mode === "report") continue;
       const patch = await check.fix!(ctx(), findings);
@@ -116,7 +119,7 @@ describe("security checks barrel", () => {
       if (check.id === "dependency-audit") repo = refreshLock(repo);
     }
 
-    const after = await Promise.all(securityChecks.map((c) => c.detect(ctx())));
-    after.forEach((findings, i) => expect(findings, `${securityChecks[i].id} still failing`).toEqual([]));
+    const after = await Promise.all(core.map((c) => c.detect(ctx())));
+    after.forEach((findings, i) => expect(findings, `${core[i].id} still failing`).toEqual([]));
   });
 });
