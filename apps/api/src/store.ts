@@ -4,8 +4,7 @@ import { gzipSync, gunzipSync } from "node:zlib";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { createClient } from "redis";
-import { artifactsFromEnv, type Artifacts } from "./artifacts.js";
-import type { RepoSnapshot, ScanReport, GuardResult, DiffLine, Patch, ReplayReport, Verification } from "@siidekick/engine";
+import type { RepoSnapshot, ScanReport, GuardResult, DiffLine, Patch } from "@siidekick/engine";
 
 export interface PatchEntry {
   patchId: string;
@@ -32,20 +31,12 @@ export interface ScanRecord {
   // Set by POST /api/sites: a passive scan of a live website. There is no code, so no patches.
   kind?: "site";
   site?: { url: string; finalUrl: string; fetchedAt: string };
-  // The last attack replay (demo shop only), so the change report can cite it.
-  replay?: ReplayReport;
-  // Result of the isolated verify build (AWS CodeBuild), when the pipeline ran it.
-  verification?: Verification & { status: "pending" | "running" | "done" | "failed"; buildId?: string; startedAt?: string };
-  // Grounded AI explanations, keyed by finding key (check|file|line), with the model that wrote them.
-  explanations?: Record<string, { text: string; model: string; advisory?: string; at: string }>;
-  // The AWS Step Functions run that processed this scan, when the async pipeline is on.
-  pipeline?: { executionArn: string; status: string; stage?: string; updatedAt: string; error?: string };
-  // Where the code came from, so the pipeline can fetch the whole repo again with larger limits.
-  source?: { kind: "github"; url: string };
-  // The owner asked for daily rescans (new advisories are checked against the same code).
-  watch?: boolean;
-  // New findings from scheduled rescans, newest first.
-  alerts?: { at: string; title: string; severity: string; detail: string }[];
+  // Set for scans started from a GitHub URL, so a pull request can target the same repo and branch.
+  source?: { type: "github"; owner: string; repo: string; ref: string };
+  // Bedrock explanations already generated, keyed "<checkId>:<index>:<lang>", so each costs one model call.
+  explanations?: Record<string, import("./ai.js").ExplainResult>;
+  // The most recent isolated verification run for this scan.
+  latestVerify?: { jobId: string; startedAt: string; approved: string[] };
 }
 
 export interface Store {
@@ -86,11 +77,7 @@ export function createLocalStore(baseDir: string): Store {
   };
 }
 
-/**
- * DynamoDB holds every record. One whose gzip is over the 400 KB item limit (a big repo scanned in
- * full) goes to the artifacts bucket instead, with a pointer item in DynamoDB, when a bucket is set.
- */
-export function createDynamoStore(artifacts: Artifacts | null = artifactsFromEnv()): Store {
+export function createDynamoStore(): Store {
   const client = new DynamoDBClient({});
   const doc = DynamoDBDocumentClient.from(client);
   const table = process.env.TABLE_NAME;
@@ -99,22 +86,11 @@ export function createDynamoStore(artifacts: Artifacts | null = artifactsFromEnv
     kind: "dynamo",
     async get(id: string): Promise<ScanRecord | null> {
       const out = await doc.send(new GetCommand({ TableName: table, Key: { id } }));
-      if (!out.Item) return null;
-      if (typeof out.Item.s3Key === "string") {
-        if (!artifacts) throw new Error("record is stored in S3 but ARTIFACTS_BUCKET is not set");
-        return artifacts.getJson<ScanRecord>(out.Item.s3Key);
-      }
-      return JSON.parse(gunzipSync(out.Item.blob as Uint8Array).toString("utf8")) as ScanRecord;
+      return out.Item ? (JSON.parse(gunzipSync(out.Item.blob as Uint8Array).toString("utf8")) as ScanRecord) : null;
     },
     async put(id: string, record: ScanRecord): Promise<void> {
       const blob = gzipSync(JSON.stringify(record));
-      if (blob.length > MAX_ITEM_BYTES) {
-        if (!artifacts) throw new RecordTooLargeError("this repo is too large to store; try a smaller repo");
-        const s3Key = `records/${id}.json.gz`;
-        await artifacts.putJson(s3Key, record, { gzip: true });
-        await doc.send(new PutCommand({ TableName: table, Item: { id, s3Key, expiresAt: ttlSeconds() } }));
-        return;
-      }
+      if (blob.length > MAX_ITEM_BYTES) throw new RecordTooLargeError("this repo is too large to store; try a smaller repo");
       await doc.send(new PutCommand({ TableName: table, Item: { id, blob, expiresAt: ttlSeconds() } }));
     },
   };

@@ -16,10 +16,6 @@ import {
   runSiteScan,
   siteChecks,
   type SiteSnapshot,
-  buildChangeReport,
-  changeReportMarkdown,
-  changeReportHtml,
-  cycloneDx,
 } from "@siidekick/engine";
 import * as z from "zod";
 import { readFile } from "node:fs/promises";
@@ -27,27 +23,13 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { createStore, RecordTooLargeError, type Store, type ScanRecord } from "./store.js";
-import { fetchGithubRepo, GithubError } from "./github.js";
+import { fetchGithubRepo, GithubError, parseGithubUrl } from "./github.js";
+import { explainFinding, isLang, LANGUAGES, type ConverseFn, type ExplainResult } from "./ai.js";
+import { buildSourceZip, type JobMeta, type Verdict, type VerifyBackend } from "./verify.js";
+import { openPullRequest, prBody, PullRequestError } from "./pullRequest.js";
 import { fetchSite, SiteError, takeScanSlot } from "./site.js";
-import { editDiff, proposePatches } from "./patching.js";
-import type { Artifacts } from "./artifacts.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/**
- * Sliding-window limit per instance. Code scans (GitHub, upload) are the expensive ones: they fetch
- * a tarball, call OSV and fill storage. API Gateway throttling is the account-wide backstop on AWS.
- */
-function slidingWindow(max: number, windowMs = 60_000): () => boolean {
-  const hits: number[] = [];
-  return () => {
-    const now = Date.now();
-    while (hits.length && now - hits[0] > windowMs) hits.shift();
-    if (hits.length >= max) return false;
-    hits.push(now);
-    return true;
-  };
-}
 
 const MAX_FILES = 500;
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -59,6 +41,33 @@ const scanBodySchema = z.object({
 
 const githubBodySchema = z.object({ url: z.string().max(300) });
 const siteBodySchema = z.object({ url: z.string().min(1).max(2048) });
+const explainBodySchema = z.object({
+  checkId: z.string().min(1).max(80),
+  index: z.number().int().min(0).max(500).default(0),
+  lang: z.string().default("en"),
+});
+const prBodySchema = z.object({ token: z.string().min(20).max(400).regex(/^[A-Za-z0-9_]+$/, "that does not look like a GitHub token") });
+
+/** One structured line per security-relevant action, for CloudWatch Logs Insights. Never pass secrets. */
+function audit(event: string, fields: Record<string, unknown>): void {
+  console.log(JSON.stringify({ audit: event, at: new Date().toISOString(), ...fields }));
+}
+
+/** A small per-instance budget so nobody can run up the Bedrock or CodeBuild bill from one Lambda. */
+function rateLimiter(perMinute: number): () => boolean {
+  let windowStart = 0;
+  let used = 0;
+  return () => {
+    const now = Date.now();
+    if (now - windowStart > 60_000) {
+      windowStart = now;
+      used = 0;
+    }
+    if (used >= perMinute) return false;
+    used++;
+    return true;
+  };
+}
 
 function validatePath(p: string): string | null {
   if (p.includes("\0")) return "path must not contain NUL";
@@ -92,6 +101,12 @@ const editSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("modify"), path: z.string(), before: z.string(), after: z.string() }),
 ]);
 const checkBodySchema = z.object({ edits: z.array(editSchema).min(1).max(MAX_CHECK_EDITS) });
+
+function editDiff(edits: FileEdit[]): Array<{ path: string; lines: DiffLine[] }> {
+  return edits.map((e) =>
+    e.kind === "create" ? { path: e.path, lines: renderDiff("", e.content) } : { path: e.path, lines: renderDiff(e.before, e.after) },
+  );
+}
 
 type Handler = (params: Record<string, string>, body: unknown) => Promise<{ status: number; body: unknown }>;
 
@@ -169,20 +184,28 @@ export function makeRouter(deps: {
   fetch?: typeof fetch;
   replayRuntime?: string;
   fetchSite?: (url: string) => Promise<SiteSnapshot>;
-  /** Code-scan limiter; defaults to 30 GitHub/upload scans a minute per instance. */
-  allowCodeScan?: () => boolean;
-  /** Starts the AWS pipeline for a scan and returns the execution ARN (set on AWS only). */
-  startPipeline?: (scanId: string) => Promise<string>;
-  /** The pipeline's S3 bucket, for the watch list (set on AWS only). */
-  artifacts?: Artifacts;
+  /** Amazon Bedrock, when configured: explains findings. Absent locally and on Vercel. */
+  ai?: { modelId: string; converse: () => Promise<ConverseFn> };
+  /** S3 + Step Functions + CodeBuild, when configured: verifies approved fixes in an isolated build. */
+  verify?: () => Promise<VerifyBackend>;
+  /** Shown as the PR footer link. */
+  siteUrl?: string;
 }) {
   const store = deps.store;
-  const allowCodeScan = deps.allowCodeScan ?? slidingWindow(Number(process.env.CODE_SCANS_PER_MINUTE ?? 30));
-  const busy = { status: 429, body: { error: "too many code scans right now; try again in a minute" } };
   const scanFetch = cachedScanFetch(deps.fetch ?? fetch);
+  const takeExplainSlot = rateLimiter(30);
+  const takeVerifySlot = rateLimiter(6);
+
+  function features() {
+    return {
+      ai: deps.ai ? { model: deps.ai.modelId, languages: LANGUAGES } : null,
+      verify: Boolean(deps.verify),
+      pullRequests: true,
+    };
+  }
 
   async function healthHandler(): Promise<{ status: number; body: unknown }> {
-    return { status: 200, body: { ok: true, checks: registry.length, storage: store.kind } };
+    return { status: 200, body: { ok: true, checks: registry.length, storage: store.kind, features: features() } };
   }
 
   /** The live check list, so the site never shows a hand-copied one that drifts from the engine. */
@@ -196,19 +219,12 @@ export function makeRouter(deps: {
     return { status: 200, body: { repo: registry.map(row), site: siteChecks.map(row) } };
   }
 
-  /** Hand a stored scan to the AWS pipeline. A pipeline that cannot start never fails the scan itself. */
-  async function startPipeline(record: ScanRecord): Promise<ScanRecord["pipeline"]> {
-    if (!deps.startPipeline) return undefined;
-    try {
-      const executionArn = await deps.startPipeline(record.id);
-      return { executionArn, status: "running", stage: "queued", updatedAt: new Date().toISOString() };
-    } catch (err) {
-      console.error("pipeline start failed:", err);
-      return { executionArn: "", status: "failed", stage: "start", updatedAt: new Date().toISOString(), error: "the pipeline could not start" };
-    }
-  }
-
-  async function saveScan(repo: RepoSnapshot, demo = false, omitted = 0, source?: ScanRecord["source"]): Promise<{ status: number; body: unknown }> {
+  async function saveScan(
+    repo: RepoSnapshot,
+    demo = false,
+    omitted = 0,
+    source?: ScanRecord["source"],
+  ): Promise<{ status: number; body: unknown }> {
     const report: ScanReport = await runScan({ repo, fetch: scanFetch }, registry);
     const id = crypto.randomUUID();
     const record: ScanRecord = {
@@ -221,19 +237,13 @@ export function makeRouter(deps: {
       ...(source ? { source } : {}),
     };
     await store.put(id, record);
-    const pipeline = await startPipeline(record);
-    if (pipeline) {
-      // Re-read: the pipeline may already have written to the record.
-      const latest = (await store.get(id)) ?? record;
-      await store.put(id, { ...latest, pipeline: latest.pipeline?.stage && latest.pipeline.stage !== "queued" ? latest.pipeline : pipeline });
-    }
-    return { status: 201, body: { id, report, ...(omitted > 0 ? { omitted } : {}), ...(pipeline ? { pipeline } : {}) } };
+    audit("scan.created", { scanId: id, repo: repo.name, files: repo.files.length, score: report.score, source: source ? "github" : demo ? "demo" : "upload" });
+    return { status: 201, body: { id, report, ...(omitted > 0 ? { omitted } : {}) } };
   }
 
   async function createScanHandler(_params: Record<string, string>, body: unknown): Promise<{ status: number; body: unknown }> {
     const v = validateScanBody(body);
     if (!v.ok) return { status: 400, body: { error: v.error } };
-    if (!allowCodeScan()) return busy;
     return saveScan(v.repo);
   }
 
@@ -244,10 +254,10 @@ export function makeRouter(deps: {
   async function githubScanHandler(_params: Record<string, string>, body: unknown): Promise<{ status: number; body: unknown }> {
     const parsed = githubBodySchema.safeParse(body);
     if (!parsed.success) return { status: 400, body: { error: "invalid request body" } };
-    if (!allowCodeScan()) return busy;
     try {
       const { omitted, ...repo } = await fetchGithubRepo(parsed.data.url, { fetch: deps.fetch });
-      return await saveScan(repo, false, omitted, { kind: "github", url: parsed.data.url });
+      const gh = parseGithubUrl(parsed.data.url);
+      return await saveScan(repo, false, omitted, gh ? { type: "github", ...gh } : undefined);
     } catch (err) {
       if (err instanceof GithubError) return { status: 400, body: { error: err.message } };
       throw err;
@@ -294,13 +304,10 @@ export function makeRouter(deps: {
         after: record.after,
         omitted: record.omitted,
         demo: record.demo === true,
+        github: record.source ? `${record.source.owner}/${record.source.repo}` : undefined,
+        latestVerify: record.latestVerify,
+        features: features(),
         ...(record.kind ? { kind: record.kind, site: record.site } : {}),
-        ...(record.pipeline ? { pipeline: record.pipeline } : {}),
-        ...(record.verification ? { verification: record.verification } : {}),
-        ...(record.explanations ? { explanations: record.explanations } : {}),
-        ...(record.alerts ? { alerts: record.alerts } : {}),
-        watch: record.watch === true,
-        pipelineAvailable: deps.startPipeline !== undefined,
         ...(anyApproved ? { approvedSummary: await approvedSummary(record) } : {}),
       },
     };
@@ -312,8 +319,39 @@ export function makeRouter(deps: {
     if (!record) return { status: 404, body: { error: "not found" } };
     if (record.kind === "site") return { status: 400, body: { error: "website scans report fixes; there is no code to patch" } };
 
+    let current: RepoSnapshot = { name: record.repo.name, files: [...record.repo.files] };
     const beforeReport: ScanReport = record.report;
-    const { entries, patched: current, after: afterReport } = await proposePatches(record.repo, beforeReport, scanFetch);
+    const entries: Array<{
+      patchId: string;
+      patch: Patch;
+      guard: GuardResult;
+      diff: Array<{ path: string; lines: DiffLine[] }>;
+      approved: boolean;
+    }> = [];
+
+    for (const check of registry) {
+      const result = beforeReport.results.find((r) => r.checkId === check.id);
+      if (!result || result.passed || !check.fix) continue;
+      let patch: Patch | null;
+      try {
+        patch = await check.fix({ repo: current, fetch: scanFetch }, result.findings);
+      } catch (err) {
+        // A crashing fixer is that check's problem; skip it and keep applying the rest.
+        console.error(`check ${check.id} fix threw:`, err);
+        continue;
+      }
+      if (!patch) continue;
+
+      const guard: GuardResult = guardPatch(current, patch);
+      const diff = editDiff(patch.edits);
+
+      entries.push({ patchId: patch.id, patch, guard, diff, approved: false });
+      if (guard.ok) {
+        current = applyPatch(current, patch);
+      }
+    }
+
+    const afterReport: ScanReport = await runScan({ repo: current, fetch: scanFetch }, registry);
     const status: "rescan-clean" | "partial" = afterReport.passed === afterReport.total ? "rescan-clean" : "partial";
 
     const updated: ScanRecord = {
@@ -430,74 +468,7 @@ export function makeRouter(deps: {
     const files = snapshot.files.filter((f) => approvedPaths.has(f.path)).map((f) => ({ path: f.path, content: f.content }));
     // The patch files and log let the owner see and undo each fix with plain git.
     files.push(...patchArtifacts(record.repo, applied));
-    const report = await changeReport(record);
-    files.push({ path: "SIIDEKICK_REPORT.md", content: changeReportMarkdown(report) }, { path: "SIIDEKICK_REPORT.html", content: changeReportHtml(report) });
-    const bom = cycloneDx(record.repo);
-    if (bom) files.push({ path: "sbom.cdx.json", content: `${JSON.stringify(bom, null, 2)}\n` });
     return { status: 200, body: { files } };
-  }
-
-  /** Before/after change report over the approved patches, with whatever evidence the record holds. */
-  async function changeReport(record: ScanRecord) {
-    const { snapshot } = await approvedSnapshot(record);
-    const after = await runScan({ repo: snapshot, fetch: scanFetch }, registry);
-    return buildChangeReport({
-      repo: record.repo.name,
-      original: record.repo,
-      before: record.report,
-      after,
-      patches: (record.patches ?? []).map((p) => ({ patch: p.patch, guard: p.guard, approved: p.approved })),
-      verification: record.verification?.status === "done" ? record.verification : undefined,
-      replay: record.replay,
-      explanations: Object.fromEntries(Object.entries(record.explanations ?? {}).map(([k, v]) => [k, v.text])),
-    });
-  }
-
-  async function reportHandler(params: Record<string, string>): Promise<{ status: number; body: unknown }> {
-    if (!UUID_RE.test(params.id)) return { status: 400, body: { error: "invalid id" } };
-    const record = await store.get(params.id);
-    if (!record) return { status: 404, body: { error: "not found" } };
-    if (record.kind === "site") return { status: 400, body: { error: "website scans have no code changes to report" } };
-    const report = await changeReport(record);
-    return { status: 200, body: { report, markdown: changeReportMarkdown(report), html: changeReportHtml(report) } };
-  }
-
-  /** Run the pipeline again for a stored scan (after a failure, or to verify again). */
-  async function pipelineHandler(params: Record<string, string>): Promise<{ status: number; body: unknown }> {
-    if (!UUID_RE.test(params.id)) return { status: 400, body: { error: "invalid id" } };
-    if (!deps.startPipeline) return { status: 501, body: { error: "the AWS pipeline is not configured on this deployment" } };
-    const record = await store.get(params.id);
-    if (!record) return { status: 404, body: { error: "not found" } };
-    if (record.kind === "site") return { status: 400, body: { error: "website scans have no code for the pipeline" } };
-    if (record.pipeline?.status === "running" && Date.now() - Date.parse(record.pipeline.updatedAt) < 15 * 60_000) {
-      return { status: 409, body: { error: "the pipeline is already running for this scan", pipeline: record.pipeline } };
-    }
-    const pipeline = await startPipeline(record);
-    await store.put(record.id, { ...record, pipeline });
-    return { status: 202, body: { pipeline } };
-  }
-
-  /** Daily rescans for this scan (EventBridge): new advisories against the same code raise an alert. */
-  async function watchHandler(params: Record<string, string>): Promise<{ status: number; body: unknown }> {
-    if (!UUID_RE.test(params.id)) return { status: 400, body: { error: "invalid id" } };
-    if (!deps.artifacts) return { status: 501, body: { error: "daily rescans need the AWS deployment" } };
-    const record = await store.get(params.id);
-    if (!record) return { status: 404, body: { error: "not found" } };
-    if (record.kind === "site") return { status: 400, body: { error: "website scans are not watched" } };
-    const index = (await deps.artifacts.getJson<{ ids: string[] }>("watch/index.json")) ?? { ids: [] };
-    if (!index.ids.includes(record.id)) index.ids.push(record.id);
-    await deps.artifacts.putJson("watch/index.json", { ids: index.ids.slice(-500) });
-    await store.put(record.id, { ...record, watch: true });
-    return { status: 200, body: { watch: true } };
-  }
-
-  async function sbomHandler(params: Record<string, string>): Promise<{ status: number; body: unknown }> {
-    if (!UUID_RE.test(params.id)) return { status: 400, body: { error: "invalid id" } };
-    const record = await store.get(params.id);
-    if (!record) return { status: 404, body: { error: "not found" } };
-    const bom = cycloneDx(record.repo);
-    if (!bom) return { status: 404, body: { error: "no package-lock.json (v2 or v3) in this repo, so there is no dependency tree to list" } };
-    return { status: 200, body: bom };
   }
 
   /**
@@ -513,9 +484,174 @@ export function makeRouter(deps: {
     if (!runtimeDir) return { status: 200, body: { available: false, reason: "replay unavailable here: runtime not bundled", attacks: [], paths: [], ms: 0 } };
     const before = await readDemoRepo();
     const { snapshot: after } = await approvedSnapshot(record, before);
-    const replay = await replayDemo({ before, after, runtimeDir });
-    await store.put(record.id, { ...record, replay });
-    return { status: 200, body: replay };
+    return { status: 200, body: await replayDemo({ before, after, runtimeDir }) };
+  }
+
+  /** Amazon Bedrock explains one finding in the owner's language, from the scan's evidence only. */
+  async function explainHandler(params: Record<string, string>, body: unknown): Promise<{ status: number; body: unknown }> {
+    if (!UUID_RE.test(params.id)) return { status: 400, body: { error: "invalid id" } };
+    const parsed = explainBodySchema.safeParse(body);
+    if (!parsed.success || !isLang(parsed.data.lang)) return { status: 400, body: { error: "invalid request body" } };
+    const { checkId, index } = parsed.data;
+    const lang = parsed.data.lang;
+    if (!deps.ai) return { status: 503, body: { error: "AI explanations need Amazon Bedrock, which is not configured on this server", available: false } };
+    const record = await store.get(params.id);
+    if (!record) return { status: 404, body: { error: "not found" } };
+    const finding = record.report.results.find((r) => r.checkId === checkId)?.findings[index];
+    if (!finding) return { status: 404, body: { error: "finding not found" } };
+    const key = `${checkId}:${index}:${lang}`;
+    const cached = record.explanations?.[key];
+    if (cached) return { status: 200, body: { ...cached, cached: true } };
+    if (!takeExplainSlot()) return { status: 429, body: { error: "too many AI explanations right now; try again in a minute" } };
+    const patchReason = record.patches?.find((p) => p.patch.checkId === checkId)?.patch.reason;
+    let result: ExplainResult;
+    try {
+      result = await explainFinding({
+        converse: await deps.ai.converse(),
+        modelId: deps.ai.modelId,
+        finding,
+        lang,
+        patchReason,
+        repo: record.repo.name,
+        kind: record.kind,
+      });
+    } catch (err) {
+      console.error("bedrock explain failed:", err);
+      return { status: 502, body: { error: `Amazon Bedrock did not answer: ${err instanceof Error ? err.message : "unknown error"}` } };
+    }
+    audit("ai.explain", { scanId: record.id, checkId, lang, model: result.model, grounded: result.ungrounded.length === 0, ms: result.ms });
+    if (result.ungrounded.length === 0) {
+      const fresh = (await store.get(params.id)) ?? record;
+      fresh.explanations = { ...(fresh.explanations ?? {}), [key]: result };
+      await store.put(params.id, fresh);
+    }
+    return { status: 200, body: result };
+  }
+
+  /** Names of the packages the OSV.dev scan flagged: what the isolated build must show as fixed. */
+  function verifyTargets(record: ScanRecord): string[] {
+    const findings = record.report.results.find((r) => r.checkId === "dependency-audit")?.findings ?? [];
+    const names = findings.map((f) => f.chain?.at(-1) ?? f.title.replace(/^Vulnerable dependency:\s*/, "")).filter(Boolean);
+    return [...new Set(names)];
+  }
+
+  /** Starts the Step Functions workflow that runs before/after in CodeBuild. */
+  async function verifyStartHandler(params: Record<string, string>): Promise<{ status: number; body: unknown }> {
+    if (!UUID_RE.test(params.id)) return { status: 400, body: { error: "invalid id" } };
+    if (!deps.verify) return { status: 503, body: { error: "isolated verification needs AWS CodeBuild, which is not configured on this server", available: false } };
+    const record = await store.get(params.id);
+    if (!record) return { status: 404, body: { error: "not found" } };
+    if (record.kind === "site") return { status: 400, body: { error: "website scans have no code to build" } };
+    const approved = (record.patches ?? []).filter((p) => p.approved).map((p) => p.patchId);
+    if (approved.length === 0) return { status: 409, body: { error: "approve at least one fix first" } };
+    if (!record.repo.files.some((f) => f.path === "package.json")) {
+      return { status: 409, body: { error: "isolated verification runs Node.js projects (a package.json at the repo root)" } };
+    }
+    const prev = record.latestVerify;
+    if (prev && Date.now() - Date.parse(prev.startedAt) < 15 * 60_000 && prev.approved.join() === approved.join()) {
+      return { status: 200, body: { jobId: prev.jobId, reused: true } };
+    }
+    if (!takeVerifySlot()) return { status: 429, body: { error: "too many builds right now; try again in a minute" } };
+    const backend = await deps.verify();
+    const { snapshot } = await approvedSnapshot(record);
+    const jobId = crypto.randomUUID();
+    const meta: JobMeta = {
+      jobId,
+      scanId: record.id,
+      repo: record.repo.name,
+      targets: verifyTargets(record),
+      approved,
+      startedAt: new Date().toISOString(),
+    };
+    await backend.put(`jobs/${jobId}/source.zip`, buildSourceZip(record.repo, snapshot), "application/zip");
+    await backend.put(`jobs/${jobId}/meta.json`, JSON.stringify(meta), "application/json");
+    await backend.start(jobId, { jobId, scanId: record.id });
+    audit("verify.start", { scanId: record.id, jobId, repo: record.repo.name, approved, targets: meta.targets.length });
+    const fresh = (await store.get(params.id)) ?? record;
+    fresh.latestVerify = { jobId, startedAt: meta.startedAt, approved };
+    await store.put(params.id, fresh);
+    return { status: 202, body: { jobId } };
+  }
+
+  async function verifyStatusHandler(params: Record<string, string>): Promise<{ status: number; body: unknown }> {
+    if (!UUID_RE.test(params.id) || !UUID_RE.test(params.jobId)) return { status: 400, body: { error: "invalid id" } };
+    if (!deps.verify) return { status: 503, body: { error: "isolated verification is not configured on this server", available: false } };
+    const backend = await deps.verify();
+    const metaRaw = await backend.get(`jobs/${params.jobId}/meta.json`);
+    const meta = metaRaw ? (JSON.parse(metaRaw) as JobMeta) : null;
+    if (!meta || meta.scanId !== params.id) return { status: 404, body: { error: "job not found" } };
+    const verdictRaw = await backend.get(`jobs/${params.jobId}/verdict.json`);
+    if (verdictRaw) {
+      return { status: 200, body: { state: "done", startedAt: meta.startedAt, targets: meta.targets, verdict: JSON.parse(verdictRaw) as Verdict } };
+    }
+    const exec = await backend.describe(params.jobId);
+    const elapsed = Math.round((Date.now() - Date.parse(meta.startedAt)) / 1000);
+    if (exec.status === "RUNNING" || exec.status === "SUCCEEDED") {
+      return { status: 200, body: { state: "running", startedAt: meta.startedAt, elapsed, targets: meta.targets } };
+    }
+    return { status: 200, body: { state: "error", startedAt: meta.startedAt, elapsed, error: `workflow ${exec.status.toLowerCase()}: ${exec.error ?? ""}`.trim() } };
+  }
+
+  /** Opens a GitHub pull request with the approved fixes and the latest verification evidence. */
+  async function pullRequestHandler(params: Record<string, string>, body: unknown): Promise<{ status: number; body: unknown }> {
+    if (!UUID_RE.test(params.id)) return { status: 400, body: { error: "invalid id" } };
+    const parsed = prBodySchema.safeParse(body);
+    if (!parsed.success) return { status: 400, body: { error: parsed.error.issues[0]?.message ?? "invalid request body" } };
+    const record = await store.get(params.id);
+    if (!record) return { status: 404, body: { error: "not found" } };
+    if (!record.source) return { status: 409, body: { error: "pull requests need a scan started from a GitHub URL" } };
+    const { snapshot, applied } = await approvedSnapshot(record);
+    if (applied.length === 0) return { status: 409, body: { error: "approve at least one fix first" } };
+    const changed = new Set(applied.flatMap((p) => p.edits.map((e) => e.path)));
+    const files = snapshot.files.filter((f) => changed.has(f.path)).map((f) => ({ path: f.path, content: f.content }));
+    files.push(...patchArtifacts(record.repo, applied));
+
+    let verdict: Verdict | null = null;
+    if (deps.verify && record.latestVerify) {
+      const backend = await deps.verify();
+      const raw = await backend.get(`jobs/${record.latestVerify.jobId}/verdict.json`);
+      verdict = raw ? (JSON.parse(raw) as Verdict) : null;
+      // The build ran npm install on the fixed copy; its refreshed lockfile is what makes a version bump real.
+      const lockUseful = verdict && (verdict.status === "verified" || verdict.status === "inconclusive") && verdict.result?.lockfileRefreshed;
+      if (lockUseful && changed.has("package.json")) {
+        const lock = await backend.get(`jobs/${record.latestVerify.jobId}/out/package-lock.after.json`);
+        if (lock) files.push({ path: "package-lock.json", content: lock });
+      }
+    }
+    const entries = (record.patches ?? []).filter((p) => p.approved);
+    const summary = await approvedSummary(record);
+    const description = prBody({
+      scanId: record.id,
+      scoreBefore: record.report.score,
+      scoreAfter: summary.score,
+      fixes: entries.map((e) => ({ title: e.patch.title, reason: e.patch.reason, added: e.guard.added, removed: e.guard.removed })),
+      verdict,
+      siteUrl: deps.siteUrl,
+    });
+    try {
+      const pr = await openPullRequest({
+        token: parsed.data.token,
+        owner: record.source.owner,
+        repo: record.source.repo,
+        ref: record.source.ref,
+        scanId: record.id,
+        files,
+        title: `Siidekick: ${entries.length} security fix${entries.length === 1 ? "" : "es"}${verdict?.status === "verified" ? " (verified)" : ""}`,
+        body: description,
+        fetch: deps.fetch,
+      });
+      audit("github.pr", {
+        scanId: record.id,
+        repo: `${record.source.owner}/${record.source.repo}`,
+        number: pr.number,
+        files: files.length,
+        verdict: verdict?.status ?? "none",
+      });
+      return { status: 201, body: pr };
+    } catch (err) {
+      if (err instanceof PullRequestError) return { status: err.status, body: { error: err.message } };
+      throw err;
+    }
   }
 
   const routes: RouteDef[] = [
@@ -531,10 +667,10 @@ export function makeRouter(deps: {
     { method: "POST", path: "api/scans/:id/patches/:patchId/check", handler: checkHandler },
     { method: "GET", path: "api/scans/:id/download", handler: downloadHandler },
     { method: "POST", path: "api/scans/:id/prove", handler: proveHandler },
-    { method: "GET", path: "api/scans/:id/report", handler: reportHandler },
-    { method: "GET", path: "api/scans/:id/sbom", handler: sbomHandler },
-    { method: "POST", path: "api/scans/:id/pipeline", handler: pipelineHandler },
-    { method: "POST", path: "api/scans/:id/watch", handler: watchHandler },
+    { method: "POST", path: "api/scans/:id/explain", handler: explainHandler },
+    { method: "POST", path: "api/scans/:id/verify", handler: verifyStartHandler },
+    { method: "GET", path: "api/scans/:id/verify/:jobId", handler: verifyStatusHandler },
+    { method: "POST", path: "api/scans/:id/pr", handler: pullRequestHandler },
   ];
 
   async function handle(req: {

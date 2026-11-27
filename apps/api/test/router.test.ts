@@ -109,9 +109,7 @@ describe("router", () => {
     const patchId = (patchRes.body as { patches: Array<{ patch: { id: string } }> }).patches[0].patch.id;
 
     let dl = await router.handle({ method: "GET", path: `/api/scans/${id}/download` });
-    // Before any approval the zip holds only the change report (and SBOM when there is a lockfile), no code.
-    const code = (dl.body as { files: Array<{ path: string }> }).files.filter((f) => !/^(SIIDEKICK_REPORT\.|sbom\.cdx\.json$)/.test(f.path));
-    expect(code).toEqual([]);
+    expect((dl.body as { files: unknown[] }).files).toEqual([]);
 
     const ap = await router.handle({
       method: "POST",

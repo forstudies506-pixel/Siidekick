@@ -28,10 +28,32 @@ describe("ci-workflow", () => {
     expect(patch?.class).toBe("additive");
     const fixed = applyPatch(repo(files), patch!);
     const wf = fixed.files.find((x) => x.path === ".github/workflows/siidekick.yml")!;
-    expect(wf.content).toContain("node-version: 20");
-    expect(wf.content).toContain("npm ci");
+    expect(wf.content).toContain("node-version: 22");
+    expect(wf.content).toContain("permissions:\n  contents: read");
+    expect(wf.content).toContain("npm install --ignore-scripts"); // no lockfile in this repo
     expect(wf.content).toContain("npm test --if-present");
     expect(wf.content).toContain("npm audit --audit-level=high || true");
     expect(await ciWorkflow.detect({ repo: fixed })).toEqual([]);
+  });
+
+  it("uses the project's Node pin and npm ci when a lockfile exists", async () => {
+    const pinned = [
+      { path: "package.json", content: JSON.stringify({ name: "demo", engines: { node: ">=22.5" } }) },
+      { path: "package-lock.json", content: "{}" },
+    ];
+    const patch = await ciWorkflow.fix!({ repo: repo(pinned) }, []);
+    const wf = patch!.edits[0].kind === "create" ? patch!.edits[0].content : "";
+    expect(wf).toContain('node-version: ">=22.5"');
+    expect(wf).toContain("npm ci --ignore-scripts");
+    const nvm = await ciWorkflow.fix!({ repo: repo([...pinned, { path: ".nvmrc", content: "22\n" }]) }, []);
+    expect(nvm!.edits[0].kind === "create" && nvm!.edits[0].content).toContain("node-version-file: .nvmrc");
+  });
+
+  it("the workflow it adds passes Siidekick's own CI security check", async () => {
+    const { registry } = await import("../src/registry");
+    const ciSecurity = registry.find((c) => c.id === "ci-security")!;
+    const patch = await ciWorkflow.fix!({ repo: repo(files) }, []);
+    const fixed = applyPatch(repo(files), patch!);
+    expect(await ciSecurity.detect({ repo: fixed })).toEqual([]);
   });
 });

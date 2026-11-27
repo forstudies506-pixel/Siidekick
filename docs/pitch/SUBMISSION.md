@@ -6,7 +6,7 @@ Siidekick
 
 ## One-line pitch
 
-Find the hole before an AI does: scan any website or GitHub repo, get plain-language findings, approve add-only fixes, and watch the same attacks fail against the patched app.
+Cybersecurity for everyone: scan any website or GitHub repo, get findings explained in your own language, approve add-only fixes, and see each fix proven in an isolated AWS build before you merge it.
 
 ## 150-word description
 
@@ -18,27 +18,29 @@ Each finding comes with an add-only patch. A diff guard refuses any patch that d
 
 ## What is live
 
-- Web app: https://siidekick.ashforge.cv (Vercel). Scan any site or public GitHub repo; no sample data.
-- AWS build in the repo: Lambda + API Gateway + DynamoDB + S3/CloudFront via AWS SAM (`infra/template.yaml`). Not deployed yet; it needs the team's Learner Lab credentials.
-- CLI: `siidekick scan <dir>`, `siidekick fix <dir> --out <dir> --verify`, and `fix --prove` for the attack replay on the demo shop.
+- **AWS (submission URL):** https://d1ulntgja5qae0.cloudfront.net (Sydney, ap-southeast-2). Demo in one click: https://d1ulntgja5qae0.cloudfront.net/app?demo=1
+- Mirror on Vercel: https://siidekick.ashforge.cv (scan engine only; no Bedrock or CodeBuild there).
+- CLI: `siidekick scan <dir>`, `siidekick fix <dir> --out <dir> --verify`, `fix --prove`.
 
-Honest limits: scan records are kept 7 days on a free 30 MB Redis database, so old share links expire. The attack replay runs only on the bundled demo shop, never on uploaded code. SQL built from strings is reported, not auto-fixed.
+Honest limits: the verification build needs internet access for `npm install` (it gets no credentials, a 15-minute cap and a role scoped to its own files). AI explanations are checked against the scan evidence but are still AI; the scanner text stays the source of truth. Records and job files expire after 7 days.
 
 ## Tech stack
 
-- TypeScript, Node.js 22
-- React 19 and Vite
-- Vitest
-- Vercel (live), AWS SAM (prepared)
+- TypeScript, Node.js 22, React 19, Vite, Vitest (307 automated tests)
+- AWS SAM (one template, one deploy script)
 
-## AWS services (prepared build)
+## AWS services (live build)
 
-- AWS Lambda
-- Amazon API Gateway HTTP API
-- Amazon DynamoDB (records expire after seven days)
-- Amazon S3
-- Amazon CloudFront
-- AWS IAM: the Learner Lab's existing LabRole. No Bedrock or other paid model service.
+Full reasoning in `docs/BUILD_SUMMARY.md`.
+
+- **Amazon CloudFront + Amazon S3**: the site on one HTTPS domain with security headers. The S3 bucket is private behind Origin Access Control.
+- **Amazon API Gateway (HTTP API) + AWS Lambda**: the scan engine (36 checks), diff guard and job starts, throttled.
+- **Amazon DynamoDB**: scan records with a 7-day TTL.
+- **Amazon Bedrock (Amazon Nova Lite)**: explains findings in 8 Indian languages; every answer is checked against the scan evidence so it cannot invent a CVE or version.
+- **AWS Step Functions + AWS CodeBuild**: verified fixes. Before and after copies each get npm install, the project's own tests and an independent npm audit in a throwaway build; a Lambda applies the trust rule.
+- **Amazon S3 (artefacts)**: encrypted job inputs, outputs and verdicts, expiring after 7 days.
+- **Amazon CloudWatch**: log groups, an audit trail, alarms and one dashboard for the whole pipeline.
+- **AWS IAM**: a least-privilege role per component; the untrusted build's role reaches only its own job files.
 
 ## Repo link
 

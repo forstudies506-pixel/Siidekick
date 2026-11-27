@@ -41,6 +41,20 @@ export interface Finding {
   explanation: string;
   /** Copy-ready fix for report-only findings, e.g. the header line for the owner's host. */
   remedy?: string;
+  /** dependency-audit: how the package enters the project, from the app down, e.g. ["express", "body-parser", "qs"]. */
+  chain?: string[];
+  /** dependency-audit: the advisories behind the finding, as OSV.dev returned them. Grounds AI explanations. */
+  advisories?: Advisory[];
+}
+
+export interface Advisory {
+  id: string;
+  aliases: string[];
+  summary?: string;
+  /** CVSS vector or severity label, when OSV lists one. */
+  severity?: string;
+  /** Lowest published fixed version for the installed version; null when none is listed. */
+  fixed: string | null;
 }
 
 /** additive: only adds lines/files. minimal-edit: may change a few declared lines (ROADMAP §9). */
@@ -136,12 +150,5 @@ export interface ScanReport {
   total: number;
   /** Checks that did not apply to this repo. */
   skipped?: number;
-  /** Open findings by severity, across every applicable check. */
-  open?: Record<Severity, number>;
-  /**
-   * The worst open severity, in words. The score counts passing checks; this says how bad what is
-   * left is, so "59/100" never hides an open critical.
-   */
-  risk?: "critical" | "high" | "medium" | "low" | "clear";
   results: CheckResult[];
 }

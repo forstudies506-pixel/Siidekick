@@ -6,6 +6,7 @@ import {
   createDemoScan,
   download,
   generatePatches,
+  getFeatures,
   getScan,
   githubScan,
   isMockSession,
@@ -23,7 +24,9 @@ import {
   type PatchResponse,
   type ScanResponse,
   type SiteInfo,
+  type Features,
 } from "../api/client";
+import { AI_LANGS, AiExplain, DependencyChain, PullRequestPanel, VerifyPanel } from "../components/AwsPanels";
 import { checkHi, ui, type Lang } from "../i18n/hi";
 import { zipFiles } from "../zip";
 
@@ -163,7 +166,18 @@ function Remedy({ text }: { text: string }) {
   );
 }
 
-function FindingRow({ result, lang, hasFix }: { result: CheckResult; lang: Lang; hasFix: boolean }) {
+function FindingRow({
+  result,
+  lang,
+  hasFix,
+  ai,
+}: {
+  result: CheckResult;
+  lang: Lang;
+  hasFix: boolean;
+  /** Set when Amazon Bedrock is available: the scan and the language to explain in. */
+  ai?: { scanId: string; lang: string };
+}) {
   const t = ui[lang];
   const hi = lang === "hi" ? checkHi[result.checkId] : undefined;
   const state = result.skipped ? "na" : result.passed ? "passed" : "failed";
@@ -204,8 +218,10 @@ function FindingRow({ result, lang, hasFix }: { result: CheckResult; lang: Lang;
                     {finding.line ? `:${finding.line}` : ""}
                   </code>
                   {finding.evidence && <pre>{finding.evidence}</pre>}
+                  {finding.chain && <DependencyChain chain={finding.chain} />}
                   <p>{finding.explanation}</p>
                   {finding.remedy && <Remedy text={finding.remedy} />}
+                  {ai && !result.passed && <AiExplain scanId={ai.scanId} checkId={result.checkId} index={index} lang={ai.lang} />}
                 </div>
               ))
             )}
@@ -706,6 +722,11 @@ export function Dashboard() {
   const [filter, setFilter] = useState<Filter>("failing");
   const [view, setView] = useState<View>("severity");
   const [lang, setLang] = useState<Lang>("en");
+  const [aiLang, setAiLang] = useState("hi");
+  const [features, setFeatures] = useState<Features | null>(null);
+  useEffect(() => {
+    void getFeatures().then(setFeatures);
+  }, []);
   const [selectedPatch, setSelectedPatch] = useState("");
   const [recent, setRecent] = useState<Recent[]>(loadRecent);
   const [repoUrl, setRepoUrl] = useState("");
@@ -1065,6 +1086,7 @@ export function Dashboard() {
   const tamperId = mock || patchResult?.mock ? undefined : patches.find((e) => e.guard.ok && tamperEdits(e.patch.edits))?.patch.id;
   const toApprove = patches.filter((e) => e.guard.ok && !approved.includes(e.patch.id));
   const severityOf = (checkId: string) => results.find((r) => r.checkId === checkId)?.severity ?? "info";
+  const aiFor = features?.ai && scanId && !mock ? { scanId, lang: aiLang } : undefined;
   const statusText =
     busy === "scan"
       ? scanning === "site"
@@ -1400,6 +1422,19 @@ export function Dashboard() {
                   हिन्दी
                 </button>
               </div>
+              {aiFor && (
+                <label className="ai-lang">
+                  <span>AI explains in</span>
+                  <select value={aiLang} onChange={(e) => setAiLang(e.target.value)}>
+                    {AI_LANGS.map((l) => (
+                      <option key={l.id} value={l.id} lang={l.id}>
+                        {l.native}
+                        {l.id === "en" ? "" : ` (${l.label})`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </div>
             <p className="keys-hint" aria-hidden="true">
               <kbd>/</kbd> search <kbd>f</kbd> <kbd>p</kbd> <kbd>n</kbd> <kbd>a</kbd> filter <kbd>1</kbd>–<kbd>4</kbd> steps <kbd>Esc</kbd> clear
@@ -1414,7 +1449,7 @@ export function Dashboard() {
             ) : view === "severity" ? (
               <div className="finding-list">
                 {shown.map((r) => (
-                  <FindingRow key={r.checkId} result={r} lang={lang} hasFix={hasFix(r)} />
+                  <FindingRow key={r.checkId} result={r} lang={lang} hasFix={hasFix(r)} ai={aiFor} />
                 ))}
               </div>
             ) : (
@@ -1425,7 +1460,7 @@ export function Dashboard() {
                   </h3>
                   <div className="finding-list">
                     {g.items.map((r) => (
-                      <FindingRow key={r.checkId} result={r} lang={lang} hasFix={hasFix(r)} />
+                      <FindingRow key={r.checkId} result={r} lang={lang} hasFix={hasFix(r)} ai={aiFor} />
                     ))}
                   </div>
                 </section>
@@ -1679,6 +1714,13 @@ export function Dashboard() {
                 </ol>
               </section>
             </div>
+
+            {!mock && !patchResult.mock && scanId && (
+              <>
+                <VerifyPanel key={`v-${scanId}`} scanId={scanId} approved={approved} features={features} />
+                <PullRequestPanel key={`pr-${scanId}`} scanId={scanId} approved={approved} />
+              </>
+            )}
 
             {demo && <ProofPanel key={scanId} scanId={scanId} approved={approved} mock={mock} results={results} />}
           </section>

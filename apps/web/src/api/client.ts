@@ -302,3 +302,92 @@ export async function download(id: string): Promise<DownloadResponse> {
   if (mockSession) return mockDownload([...mockApproved]);
   return live(request<DownloadResponse>(`/api/scans/${encodeURIComponent(id)}/download`, { method: "GET" }, validDownload));
 }
+
+// ---- AWS features: Bedrock explanations, CodeBuild verification, GitHub pull requests ----
+
+export interface Features {
+  ai: { model: string; languages: Record<string, string> } | null;
+  verify: boolean;
+  pullRequests: boolean;
+}
+
+/** Which AWS-backed features this server has. Locally and on Vercel, ai is null and verify is false. */
+export async function getFeatures(): Promise<Features> {
+  if (mockSession) return { ai: null, verify: false, pullRequests: false };
+  try {
+    const h = await request<{ features?: Features }>("/api/health", { method: "GET" }, isObj);
+    return h.features ?? { ai: null, verify: false, pullRequests: false };
+  } catch {
+    return { ai: null, verify: false, pullRequests: false };
+  }
+}
+
+export interface AiExplanation {
+  explanation: { summary: string; impact: string; fix: string; options: { option: string; tradeoff: string }[]; unknowns: string };
+  lang: string;
+  model: string;
+  ungrounded: string[];
+  ms: number;
+  cached?: boolean;
+}
+
+export function explain(id: string, checkId: string, index: number, lang: string): Promise<AiExplanation> {
+  return live(
+    request<AiExplanation>(
+      `/api/scans/${encodeURIComponent(id)}/explain`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ checkId, index, lang }) },
+      (v) => isObj(v) && isObj(v.explanation),
+    ),
+  );
+}
+
+export interface VerifyCheck {
+  label: string;
+  ok: boolean | null;
+  detail: string;
+}
+
+export interface Verdict {
+  status: "verified" | "inconclusive" | "not-verified" | "regression" | "error";
+  headline: string;
+  checks: VerifyCheck[];
+  targets: { name: string; before: string | null; after: string | null; fixed: boolean }[];
+  remaining: { name: string; severity: string }[];
+  result?: {
+    node?: string;
+    npm?: string;
+    before: { tests: { ran: boolean; passed?: boolean; tail?: string }; ms?: number };
+    after: { tests: { ran: boolean; passed?: boolean; tail?: string }; ms?: number };
+    lockfileRefreshed: boolean;
+  };
+  finishedAt: string;
+}
+
+export interface VerifyStatus {
+  state: "running" | "done" | "error";
+  startedAt: string;
+  elapsed?: number;
+  targets?: string[];
+  verdict?: Verdict;
+  error?: string;
+}
+
+export function startVerify(id: string): Promise<{ jobId: string; reused?: boolean }> {
+  return live(request(`/api/scans/${encodeURIComponent(id)}/verify`, { method: "POST" }, (v) => isObj(v) && typeof v.jobId === "string"));
+}
+
+export function verifyStatus(id: string, jobId: string): Promise<VerifyStatus> {
+  return live(
+    request(`/api/scans/${encodeURIComponent(id)}/verify/${encodeURIComponent(jobId)}`, { method: "GET" }, (v) => isObj(v) && typeof v.state === "string"),
+  );
+}
+
+export function openPullRequest(id: string, token: string): Promise<{ url: string; number: number; branch: string }> {
+  return live(
+    request(
+      `/api/scans/${encodeURIComponent(id)}/pr`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) },
+      (v) => isObj(v) && typeof v.url === "string",
+    ),
+  );
+}

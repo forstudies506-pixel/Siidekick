@@ -1,51 +1,57 @@
-# Siidekick 3-Minute Demo
+# Siidekick 3-Minute Demo (AWS build)
 
-Record on https://siidekick.ashforge.cv. Open it once a minute before recording so the server is warm.
+Record on the **CloudFront URL** from `scripts/deploy.sh`. Before recording:
 
-## 0:00-0:20 - Problem
+- Open `/api/health` once so Lambda is warm, and check `"ai"` is set and `"verify": true`.
+- Run one verification on the demo beforehand, so you know the timing and CodeBuild's first-run provisioning is done.
+- For the pull request moment: push `demo/vulnerable-app` to a public GitHub repo of yours, and have a fine-grained token for that repo ready (Contents, Pull requests and Workflows, read/write). Do not show the token on screen.
+- Have the AWS console open in a second tab: Step Functions → `siidekick-verify`.
+
+## 0:00–0:20 · Who it is for
 
 **Show:** The landing page.
 
-**Say:** "AI can now find and exploit a website's mistakes in minutes, and AI-written code ships the same mistakes again and again. Small shops and student teams have no security engineer to catch them."
+**Say:** "Every kirana store going online, every college fest site, every student startup runs on open-source packages. One bad package, three layers deep, can leak their customers' data, and none of them has a security engineer. Siidekick is that engineer, in their language."
 
-## 0:20-0:50 - Scan any live website
+## 0:20–0:45 · Connect and discover
 
-**Click:** Paste the team's own site (or one you have permission to show) into the box and press Scan.
+**Click:** Paste the GitHub URL of your copy of the demo shop and press Scan (or use "Try the demo shop").
 
-**Say:** "Siidekick reads the site the way any browser does. No login, no attack traffic. TLS, headers, cookies, forms, scripts, and whether the page calls an AI model with its key in plain view."
+**Say:** "It reads the code and the lockfile on AWS Lambda and checks every package against OSV.dev."
 
-**Click:** Press `f` to show only failing checks. Open one finding.
+**Click:** Findings → open "Dependency vulnerability audit" → scroll to `qs`.
 
-**Say:** "Each one says what is wrong, why it matters, and the exact fix, in plain words."
+**Say:** "The app never installed qs. It came in through express. Siidekick rebuilds the dependency graph and shows exactly how it got in."
 
-## 0:50-1:15 - Scan a repo
+## 0:45–1:15 · Investigate, in your language
 
-**Click:** Back to the landing page. Click "Scan the demo shop" (or paste a public GitHub repo).
+**Click:** Set "AI explains in" to हिन्दी (or Tamil). Press "Explain simply".
 
-**Say:** "For code, it reads the repo file by file. These are the AI-era checks: a package name that does not exist, a server key shipped to the browser, Firebase rules left open, login tokens that are read but never verified."
+**Say:** "Amazon Bedrock explains it the way you'd explain it to a shop owner: what could happen, what to do, what the options cost. And it can't make things up: any CVE or version that isn't in the real advisory gets the answer rejected."
 
-## 1:15-1:45 - Fixes and the guard
+## 1:15–1:45 · Propose a minimal fix
 
-**Click:** Go to Fixes. Open one diff.
+**Click:** Fixes → open the dependency bump and one code fix → "Approve all guard-passed".
 
-**Say:** "Every fix only adds lines. The diff guard refuses any patch that deletes or rewrites your code, and nothing lands until you approve it."
+**Say:** "The AI never writes your code. Fixes are small templates that only add lines, and a diff guard refuses anything that deletes your code. Nothing lands until you approve it."
 
-**Click:** Approve the patches one by one. Point to the score.
+## 1:45–2:30 · Verify in isolation
 
-**Say:** "Each approval rescans the patched copy, so the score is measured, not promised."
+**Click:** Verify & ship → **Run verification**. While it runs, switch to the Step Functions tab and show the execution graph, then come back.
 
-## 1:45-2:30 - Proof of fix
+**Say:** "Step Functions takes both copies, before and after, into a throwaway CodeBuild container: npm install, *their own* tests, and npm audit, which is a second, independent advisory source. Their code runs with no AWS credentials and no install scripts."
 
-**Click:** Go to "Verify & ship" and press "Replay the attacks". Point to the path marked "Fix this one first", then to one receipt.
+**Point to:** the **Verified** badge, the 8/8 table (high → clean), "tests passed before and after".
 
-**Say:** "A score is still a claim. So Siidekick boots the shop twice, as scanned and as patched, and fires the same attacks at both. Five are blocked, and next to each is a control request showing a real customer still gets through. One still works: the SQL injection, because no safe automatic patch exists. That keeps the path to logging in as any customer open, so Siidekick says fix this one first. Risk reduced, not removed."
+**Say:** "Verified means proven: tests pass and the vulnerable packages are gone. If a fix had broken their tests, Siidekick would have caught it as a regression."
 
-## 2:30-2:45 - Take it home
+## 2:30–3:00 · Evidence and human control
 
-**Click:** Export the report as Markdown, copy the share link, download the patched files.
+**Click:** Paste the token → **Open pull request** → open the PR on GitHub.
 
-**Say:** "You get the patched files, a patch file per fix, and a log with a one-line revert for each. The same engine runs as a CLI, and `fix --prove` replays the attacks on your machine."
+**Say:** "It opens a pull request with the fixes, the refreshed lockfile and the verification evidence. A human still clicks merge. Detect carefully, explain in your language, fix minimally, prove it in isolation. Security that every Indian builder can use."
 
-## 2:45-3:00 - AWS
+## If something fails live
 
-**Say:** "It runs live today on Vercel. The AWS build is in the repo: API Gateway to Lambda, DynamoDB for scan records, S3 and CloudFront for the web app, all on the Learner Lab's free tier, no Bedrock."
+- Bedrock slow or erroring: say "the scanner text is the source of truth" and continue; explanations are cached once generated, so pre-generate the one you'll show.
+- Build slow: CodeBuild provisioning can add a minute. Show the Step Functions graph and CloudWatch dashboard while waiting, or open a pre-recorded verified run (a reload resumes the last run for that scan).

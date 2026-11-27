@@ -798,3 +798,82 @@ kbd {
   .site-footer { padding: 40px 18px 48px; flex-direction: column; align-items: flex-start; }
   .limit-line { font-size: 17px; }
 }
+
+/* ---- Dependency path, AI explanations, isolated verification, pull request ---- */
+.dep-chain { display: grid; gap: 8px; margin: 4px 0; }
+.dep-chain-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.dep-chain ol { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.dep-chain li { display: inline-flex; flex-direction: column; gap: 2px; padding: 6px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg); }
+.dep-chain li + li::before { content: "→"; position: absolute; transform: translateX(-22px); color: var(--muted); }
+.dep-chain li { position: relative; margin-left: 14px; }
+.dep-chain li:first-child { margin-left: 0; }
+.dep-chain li code { font-family: "JetBrains Mono", monospace; font-size: 13px; color: var(--ink); }
+.dep-chain li small { color: var(--muted); font-size: 11px; }
+.dep-chain li.is-app { border-style: dashed; }
+.dep-chain li.is-direct { border-color: var(--amber); }
+.dep-chain li.is-vuln { border-color: var(--red); }
+.dep-chain li.is-vuln small { color: var(--red); }
+
+.ai-explain { display: grid; gap: 10px; margin-top: 6px; padding: 14px 16px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); }
+.ai-explain.is-idle { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 0; border: 0; background: none; }
+.ai-explain.is-idle small { font-size: 12px; }
+.ai-explain.is-rejected { border-color: var(--red); }
+.ai-explain p { margin: 0; color: var(--ink); line-height: 1.6; }
+.ai-explain strong { color: var(--ink); }
+.ai-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12px; }
+.ai-tag { color: var(--amber); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.ai-summary { font-size: 17px; }
+.ai-options { display: grid; gap: 6px; margin: 0; padding-left: 18px; color: var(--muted); }
+.ai-unknowns { color: var(--muted) !important; }
+.ai-grounding { color: var(--green) !important; font-size: 12px; }
+.ai-explain.is-rejected .ai-grounding { color: var(--red) !important; }
+.ai-lang { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.ai-lang select { min-height: 36px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; }
+
+.aws-panel { display: grid; gap: 14px; margin-bottom: 26px; padding: 22px; border: 1px solid var(--surface-2); border-radius: var(--radius); background: var(--surface); }
+.aws-panel h2 { margin: 0; font-size: 22px; }
+.aws-panel p { margin: 0; line-height: 1.55; }
+.aws-panel code { font-family: "JetBrains Mono", monospace; font-size: 13px; }
+.aws-panel-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px; }
+.eyebrow { display: block; margin-bottom: 4px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.verify-panel.is-verified { border-color: var(--green); }
+.verify-panel.is-regression, .verify-panel.is-not-verified, .verify-panel.is-error { border-color: var(--red); }
+.verify-panel.is-inconclusive { border-color: var(--amber); }
+
+.stages { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.stages li { display: flex; align-items: center; gap: 10px; color: var(--muted); }
+.stages li::before { content: ""; width: 10px; height: 10px; border: 1px solid var(--muted); border-radius: 50%; flex: none; }
+.stages li.done { color: var(--ink); }
+.stages li.done::before { background: var(--green); border-color: var(--green); }
+.stages li.active { color: var(--ink); }
+.stages li.active::before { border-color: var(--amber); background: var(--amber); animation: stage-pulse 1.2s ease-in-out infinite; }
+.stages li.elapsed { font-size: 13px; }
+.stages li.elapsed::before { display: none; }
+@keyframes stage-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .stages li.active::before { animation: none; } }
+
+.verdict-block { display: grid; gap: 14px; }
+.verdict-badge { justify-self: start; padding: 4px 12px; border-radius: 999px; font-weight: 700; font-size: 14px; border: 1px solid currentColor; }
+.verdict-badge.is-verified { color: var(--green); }
+.verdict-badge.is-inconclusive { color: var(--amber); }
+.verdict-badge.is-not-verified, .verdict-badge.is-regression, .verdict-badge.is-error { color: var(--red); }
+.verdict-headline { font-size: 18px; }
+.verdict-checks { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.verdict-checks li { display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: 8px; }
+.verdict-checks li .muted { grid-column: 2; font-size: 13px; }
+.verdict-checks li.ok > span:first-child { color: var(--green); }
+.verdict-checks li.bad > span:first-child { color: var(--red); }
+.verdict-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.verdict-table caption { text-align: left; color: var(--muted); font-size: 12px; padding-bottom: 6px; }
+.verdict-table th, .verdict-table td { padding: 8px 10px; border-top: 1px solid var(--surface-2); text-align: left; }
+.verdict-table th { color: var(--muted); font-weight: 500; }
+.verdict-table td.ok { color: var(--green); }
+.verdict-table td.bad { color: var(--red); }
+.test-tail summary { cursor: pointer; color: var(--muted); }
+.test-tail pre { max-height: 260px; overflow: auto; padding: 12px; border-radius: 6px; background: var(--bg); font-size: 12px; }
+.small { font-size: 12px; }
+
+.pr-form { display: grid; gap: 12px; }
+.pr-form input { width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg); color: var(--ink); font-family: "JetBrains Mono", monospace; }
+.pr-form .button { justify-self: start; }
+.pr-done a { color: var(--green); }

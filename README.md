@@ -6,7 +6,7 @@ It reduces risk. It does not make anything "unhackable".
 
 Built for the Campus to Cloud Hackathon (AWS, Techfest 2026-27) for small shops, student teams and colleges with no security engineer.
 
-**Live:** https://siidekick.ashforge.cv · **Demo in one click:** https://siidekick.ashforge.cv/app?demo=1
+**Live on AWS:** https://d1ulntgja5qae0.cloudfront.net · **Demo in one click:** https://d1ulntgja5qae0.cloudfront.net/app?demo=1 · Mirror: https://siidekick.ashforge.cv
 
 ## What you can do
 
@@ -39,6 +39,10 @@ Built for the Campus to Cloud Hackathon (AWS, Techfest 2026-27) for small shops,
   - a JSON or Markdown report
   - a share link
 - **Use the हिन्दी toggle** for check titles and reasons.
+- **Ask the AI, in your language** (AWS build): Amazon Bedrock explains any finding in English, Hindi, Bengali, Marathi, Tamil, Telugu, Gujarati or Kannada. An evidence check rejects any answer that names a CVE or version the scan did not find.
+- **See how a bad package gets in**: the dependency path from `package-lock.json`, e.g. `your app → express → body-parser`.
+- **Prove the fix** (AWS build): Step Functions runs your original and fixed code in a throwaway CodeBuild container (npm install, your tests, an independent npm audit). "Verified" only when tests pass and the flagged packages are gone. A fix that breaks your tests is caught as a regression.
+- **Open a pull request** with the fixes and the verification evidence (GitHub scans; your token is used once, never stored).
 
 The full list of checks comes from the engine: `curl -s https://siidekick.ashforge.cv/api/checks`.
 
@@ -80,7 +84,7 @@ loadRepo → runScan (checks) → check.fix() → diff guard → apply → resca
 | `apps/api` | One router served by a local server, AWS Lambda and Vercel. |
 | `apps/web` | Vite + React: the landing page and the 4-step `/app`. |
 | `demo/vulnerable-app` | A shop with planted flaws, vulnerable on purpose. |
-| `infra` | AWS SAM: Lambda, API Gateway, DynamoDB, S3, CloudFront. |
+| `infra` | AWS SAM: CloudFront, S3, API Gateway, Lambda, DynamoDB, Bedrock, Step Functions, CodeBuild, CloudWatch. |
 
 The full walkthrough is in [docs/TEAM_HANDOFF.md](docs/TEAM_HANDOFF.md#3-how-it-works).
 
@@ -88,8 +92,8 @@ The full walkthrough is in [docs/TEAM_HANDOFF.md](docs/TEAM_HANDOFF.md#3-how-it-
 
 | Target | State |
 |---|---|
-| Vercel | **Live**, via `bash scripts/deploy-vercel.sh --prod` (owner's account). Scan records are kept 7 days in Redis. |
-| AWS | **Prepared, not deployed.** `bash scripts/deploy.sh` with Learner Lab credentials; see [infra/README.md](infra/README.md). |
+| AWS | `bash scripts/deploy.sh` on a Free Tier account: CloudFront, S3, API Gateway, Lambda, DynamoDB, Bedrock, Step Functions, CodeBuild, CloudWatch, IAM. Step-by-step in [infra/README.md](infra/README.md); the why in [docs/BUILD_SUMMARY.md](docs/BUILD_SUMMARY.md). |
+| Vercel | Mirror via `bash scripts/deploy-vercel.sh --prod` (scan engine only, no Bedrock or CodeBuild). |
 
 ## Honest limits
 
