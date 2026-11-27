@@ -34,6 +34,9 @@ export function summarize(repo: string, startedAt: string, results: CheckResult[
   const applicable = results.filter((r) => !r.skipped);
   const total = applicable.reduce((s, r) => s + WEIGHT[r.severity], 0);
   const got = applicable.reduce((s, r) => s + (r.passed ? WEIGHT[r.severity] : 0), 0);
+  const open: Record<Severity, number> = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+  for (const r of applicable) for (const f of r.findings) open[f.severity]++;
+  const risk = open.critical ? "critical" : open.high ? "high" : open.medium ? "medium" : open.low ? "low" : "clear";
   return {
     repo,
     startedAt,
@@ -41,6 +44,8 @@ export function summarize(repo: string, startedAt: string, results: CheckResult[
     passed: applicable.filter((r) => r.passed).length,
     total: applicable.length,
     skipped: results.length - applicable.length,
+    open,
+    risk,
     results,
   };
 }

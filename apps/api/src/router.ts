@@ -16,6 +16,10 @@ import {
   runSiteScan,
   siteChecks,
   type SiteSnapshot,
+  buildChangeReport,
+  changeReportMarkdown,
+  changeReportHtml,
+  cycloneDx,
 } from "@siidekick/engine";
 import * as z from "zod";
 import { readFile } from "node:fs/promises";
@@ -27,6 +31,21 @@ import { fetchGithubRepo, GithubError } from "./github.js";
 import { fetchSite, SiteError, takeScanSlot } from "./site.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Sliding-window limit per instance. Code scans (GitHub, upload) are the expensive ones: they fetch
+ * a tarball, call OSV and fill storage. API Gateway throttling is the account-wide backstop on AWS.
+ */
+function slidingWindow(max: number, windowMs = 60_000): () => boolean {
+  const hits: number[] = [];
+  return () => {
+    const now = Date.now();
+    while (hits.length && now - hits[0] > windowMs) hits.shift();
+    if (hits.length >= max) return false;
+    hits.push(now);
+    return true;
+  };
+}
 
 const MAX_FILES = 500;
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -154,8 +173,12 @@ export function makeRouter(deps: {
   fetch?: typeof fetch;
   replayRuntime?: string;
   fetchSite?: (url: string) => Promise<SiteSnapshot>;
+  /** Code-scan limiter; defaults to 30 GitHub/upload scans a minute per instance. */
+  allowCodeScan?: () => boolean;
 }) {
   const store = deps.store;
+  const allowCodeScan = deps.allowCodeScan ?? slidingWindow(Number(process.env.CODE_SCANS_PER_MINUTE ?? 30));
+  const busy = { status: 429, body: { error: "too many code scans right now; try again in a minute" } };
   const scanFetch = cachedScanFetch(deps.fetch ?? fetch);
 
   async function healthHandler(): Promise<{ status: number; body: unknown }> {
@@ -191,6 +214,7 @@ export function makeRouter(deps: {
   async function createScanHandler(_params: Record<string, string>, body: unknown): Promise<{ status: number; body: unknown }> {
     const v = validateScanBody(body);
     if (!v.ok) return { status: 400, body: { error: v.error } };
+    if (!allowCodeScan()) return busy;
     return saveScan(v.repo);
   }
 
@@ -201,6 +225,7 @@ export function makeRouter(deps: {
   async function githubScanHandler(_params: Record<string, string>, body: unknown): Promise<{ status: number; body: unknown }> {
     const parsed = githubBodySchema.safeParse(body);
     if (!parsed.success) return { status: 400, body: { error: "invalid request body" } };
+    if (!allowCodeScan()) return busy;
     try {
       const { omitted, ...repo } = await fetchGithubRepo(parsed.data.url, { fetch: deps.fetch });
       return await saveScan(repo, false, omitted);
@@ -411,7 +436,45 @@ export function makeRouter(deps: {
     const files = snapshot.files.filter((f) => approvedPaths.has(f.path)).map((f) => ({ path: f.path, content: f.content }));
     // The patch files and log let the owner see and undo each fix with plain git.
     files.push(...patchArtifacts(record.repo, applied));
+    const report = await changeReport(record);
+    files.push({ path: "SIIDEKICK_REPORT.md", content: changeReportMarkdown(report) }, { path: "SIIDEKICK_REPORT.html", content: changeReportHtml(report) });
+    const bom = cycloneDx(record.repo);
+    if (bom) files.push({ path: "sbom.cdx.json", content: `${JSON.stringify(bom, null, 2)}\n` });
     return { status: 200, body: { files } };
+  }
+
+  /** Before/after change report over the approved patches, with whatever evidence the record holds. */
+  async function changeReport(record: ScanRecord) {
+    const { snapshot } = await approvedSnapshot(record);
+    const after = await runScan({ repo: snapshot, fetch: scanFetch }, registry);
+    return buildChangeReport({
+      repo: record.repo.name,
+      original: record.repo,
+      before: record.report,
+      after,
+      patches: (record.patches ?? []).map((p) => ({ patch: p.patch, guard: p.guard, approved: p.approved })),
+      verification: record.verification?.status === "done" ? record.verification : undefined,
+      replay: record.replay,
+      explanations: Object.fromEntries(Object.entries(record.explanations ?? {}).map(([k, v]) => [k, v.text])),
+    });
+  }
+
+  async function reportHandler(params: Record<string, string>): Promise<{ status: number; body: unknown }> {
+    if (!UUID_RE.test(params.id)) return { status: 400, body: { error: "invalid id" } };
+    const record = await store.get(params.id);
+    if (!record) return { status: 404, body: { error: "not found" } };
+    if (record.kind === "site") return { status: 400, body: { error: "website scans have no code changes to report" } };
+    const report = await changeReport(record);
+    return { status: 200, body: { report, markdown: changeReportMarkdown(report), html: changeReportHtml(report) } };
+  }
+
+  async function sbomHandler(params: Record<string, string>): Promise<{ status: number; body: unknown }> {
+    if (!UUID_RE.test(params.id)) return { status: 400, body: { error: "invalid id" } };
+    const record = await store.get(params.id);
+    if (!record) return { status: 404, body: { error: "not found" } };
+    const bom = cycloneDx(record.repo);
+    if (!bom) return { status: 404, body: { error: "no package-lock.json (v2 or v3) in this repo, so there is no dependency tree to list" } };
+    return { status: 200, body: bom };
   }
 
   /**
@@ -427,7 +490,9 @@ export function makeRouter(deps: {
     if (!runtimeDir) return { status: 200, body: { available: false, reason: "replay unavailable here: runtime not bundled", attacks: [], paths: [], ms: 0 } };
     const before = await readDemoRepo();
     const { snapshot: after } = await approvedSnapshot(record, before);
-    return { status: 200, body: await replayDemo({ before, after, runtimeDir }) };
+    const replay = await replayDemo({ before, after, runtimeDir });
+    await store.put(record.id, { ...record, replay });
+    return { status: 200, body: replay };
   }
 
   const routes: RouteDef[] = [
@@ -443,6 +508,8 @@ export function makeRouter(deps: {
     { method: "POST", path: "api/scans/:id/patches/:patchId/check", handler: checkHandler },
     { method: "GET", path: "api/scans/:id/download", handler: downloadHandler },
     { method: "POST", path: "api/scans/:id/prove", handler: proveHandler },
+    { method: "GET", path: "api/scans/:id/report", handler: reportHandler },
+    { method: "GET", path: "api/scans/:id/sbom", handler: sbomHandler },
   ];
 
   async function handle(req: {

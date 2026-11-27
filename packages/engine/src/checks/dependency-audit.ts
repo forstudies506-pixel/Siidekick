@@ -1,4 +1,6 @@
-import type { Check, CheckContext, Finding, Patch } from "../types.js";
+import type { Check, CheckContext, Finding, Patch, Severity } from "../types.js";
+import { importersOf, lockGraph } from "../deps/graph.js";
+import { exploitIntel } from "../deps/intel.js";
 
 const OSV_BATCH = "https://api.osv.dev/v1/querybatch";
 const OSV_VULNS = "https://api.osv.dev/v1/vulns/";
@@ -20,6 +22,8 @@ interface Installed {
   chain: string[];
   /** True when there was no lockfile and `version` is the lowest one the package.json range allows. */
   fromRange?: boolean;
+  /** Only needed for development (lockfile dev: true): not shipped to production. */
+  dev?: boolean;
 }
 
 interface VulnInfo {
@@ -29,6 +33,8 @@ interface VulnInfo {
   severity?: string;
   /** Lowest published fixed version for this advisory; null when none is listed. */
   fixed: string | null;
+  /** GitHub advisory severity (database_specific.severity), when OSV has it. */
+  ghsa?: Severity;
 }
 
 interface AuditResult {
@@ -37,6 +43,12 @@ interface AuditResult {
   vulns: VulnInfo[];
   /** Lowest version that fixes every advisory with a published fix; null when none has one. */
   bumpTo: string | null;
+  /** CVE in CISA's Known Exploited Vulnerabilities catalog, with the date it was added. */
+  kev?: { cve: string; added: string };
+  /** Highest EPSS probability among its CVEs (0..1). */
+  epss?: { cve: string; epss: number; percentile: number };
+  /** Source files that import the package (or, for a transitive one, the direct dependency that brings it in). */
+  importedBy: string[];
 }
 
 function asRecord(v: unknown): Record<string, unknown> | null {
@@ -64,6 +76,10 @@ function nameFromKey(key: string): string | null {
 
 /** LockfileVersion 2/3 `packages` map; "" (root), link entries and versionless entries are skipped. */
 function installedPackages(lockContent: string): Installed[] {
+  const graph = lockGraph(lockContent);
+  if (graph) {
+    return [...graph.nodes.values()].map((n) => ({ key: n.key, name: n.name, version: n.version, chain: n.chain, dev: n.dev }));
+  }
   const root = asRecord(JSON.parse(lockContent));
   if (!root) throw new Error("package-lock.json is not a JSON object");
   const pkgs = asRecord(root.packages);
@@ -251,9 +267,11 @@ async function audit(ctx: CheckContext): Promise<AuditResult[] | null> {
         summary: typeof detail.summary === "string" ? detail.summary : undefined,
         severity: cvssOf(detail.severity),
         fixed: fixedFor(detail, inst.name, inst.version),
+        ghsa: ghsaSeverity(detail),
       };
     });
-    out.push({ inst, direct: direct.has(inst.name), vulns, bumpTo: bumpTarget(vulns) });
+    const isDirect = direct.has(inst.name);
+    out.push({ inst, direct: isDirect, vulns, bumpTo: bumpTarget(vulns), importedBy: importersOf(ctx.repo.files, isDirect ? inst.name : inst.chain[0] ?? inst.name) });
   });
 
   // A fix version can sit inside a newer advisory's range (lodash 4.18.0 → fixed again in 4.18.1),
@@ -275,7 +293,61 @@ async function audit(ctx: CheckContext): Promise<AuditResult[] | null> {
     });
     if (!moved) break;
   }
-  return out;
+
+  // Exploit intelligence: is any CVE known to be exploited (CISA KEV), how likely is it (EPSS)?
+  const cves = out.flatMap((r) => r.vulns.flatMap((v) => v.aliases.filter((a) => a.startsWith("CVE-"))));
+  if (cves.length) {
+    const intel = await exploitIntel(fetchFn, cves);
+    for (const r of out) {
+      for (const cve of r.vulns.flatMap((v) => v.aliases.filter((a) => a.startsWith("CVE-")))) {
+        if (intel.kev.has(cve) && !r.kev) r.kev = { cve, added: intel.kev.get(cve)! };
+        const e = intel.epss.get(cve);
+        if (e && (!r.epss || e.epss > r.epss.epss)) r.epss = { cve, ...e };
+      }
+    }
+  }
+  return out.sort((a, b) => priority(b) - priority(a));
+}
+
+const SEV_RANK: Record<Severity, number> = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
+const RANK_SEV: Severity[] = ["info", "low", "medium", "high", "critical"];
+
+function ghsaSeverity(detail: Record<string, unknown>): Severity | undefined {
+  const ds = asRecord(detail.database_specific);
+  const s = typeof ds?.severity === "string" ? ds.severity.toUpperCase() : "";
+  return s === "CRITICAL" ? "critical" : s === "HIGH" ? "high" : s === "MODERATE" || s === "MEDIUM" ? "medium" : s === "LOW" ? "low" : undefined;
+}
+
+/**
+ * Severity of the finding: the worst advisory (GitHub severity, else high), raised to critical when
+ * the CVE is known to be exploited, lowered one step when the package is only used in development.
+ */
+function findingSeverity(r: AuditResult): Severity {
+  let rank = Math.max(...r.vulns.map((v) => (v.ghsa ? SEV_RANK[v.ghsa] : SEV_RANK.high)));
+  if (r.kev || (r.epss && r.epss.epss >= 0.5)) rank = SEV_RANK.critical;
+  else if (r.inst.dev) rank = Math.max(SEV_RANK.low, rank - 1);
+  return RANK_SEV[rank];
+}
+
+/** Ordering score: exploited first, then likely-exploited, severity, used in code, shipped. */
+function priority(r: AuditResult): number {
+  return (r.kev ? 1000 : 0) + Math.round((r.epss?.epss ?? 0) * 100) + SEV_RANK[findingSeverity(r)] * 20 + (r.importedBy.length ? 10 : 0) + (r.inst.dev ? 0 : 5);
+}
+
+function sameMajor(a: string, b: string): boolean {
+  const pa = parseVer(a);
+  const pb = parseVer(b);
+  return !!pa && !!pb && pa[0] === pb[0] && (pa[0] !== 0 || pa[1] === pb[1]);
+}
+
+function priorityNote(r: AuditResult): string {
+  const parts: string[] = [];
+  if (r.kev) parts.push(`${r.kev.cve} is on CISA's Known Exploited Vulnerabilities list${r.kev.added ? ` (added ${r.kev.added})` : ""}: attackers are using it now, so fix this first.`);
+  if (r.epss) parts.push(`EPSS gives ${r.epss.cve} a ${(r.epss.epss * 100).toFixed(1)}% chance of exploitation in the next 30 days (higher than ${Math.round(r.epss.percentile * 100)}% of all CVEs).`);
+  if (r.inst.dev) parts.push("It is a development-only dependency, so it does not ship to production, but it runs on developer machines and in CI.");
+  else if (r.importedBy.length) parts.push(`Your code loads ${r.direct ? "it" : r.inst.chain[0]} in ${r.importedBy.slice(0, 3).join(", ")}${r.importedBy.length > 3 ? ` and ${r.importedBy.length - 3} more` : ""}.`);
+  else if (!r.inst.fromRange) parts.push(`No source file imports ${r.direct ? "it" : r.inst.chain[0]} directly; it may be used by a build tool or be unused.`);
+  return parts.length ? parts.join(" ") + " " : "";
 }
 
 /**
@@ -307,14 +379,19 @@ function toFinding(r: AuditResult): Finding {
     .join(", ");
   const summary = r.vulns.find((v) => v.summary)?.summary;
   const severity = r.vulns.find((v) => v.severity)?.severity;
+  const transitiveFix = !r.direct && r.bumpTo !== null
+    ? (sameMajor(r.inst.version, r.bumpTo)
+        ? `The fix adds an npm override that pins ${r.inst.name} to ^${r.bumpTo} everywhere in the tree. `
+        : `${r.bumpTo} is a new major version of ${r.inst.name}, so upgrade ${r.inst.chain[0]} to a release that depends on it instead of forcing it. `)
+    : "";
   const evidence =
     r.bumpTo !== null
       ? `${r.inst.name}@${r.inst.version} → fixed in ${r.bumpTo} (${idList}) — ${scopeLabel(r)}`
       : `${r.inst.name}@${r.inst.version} → no fixed version published yet (${idList}) — ${scopeLabel(r)}`;
   return {
     checkId: "dependency-audit",
-    title: `Vulnerable dependency: ${r.inst.name}`,
-    severity: "high",
+    title: `${r.kev ? "Actively exploited dependency" : "Vulnerable dependency"}: ${r.inst.name}`,
+    severity: findingSeverity(r),
     file: r.inst.fromRange ? "package.json" : "package-lock.json",
     evidence,
     explanation:
@@ -322,6 +399,8 @@ function toFinding(r: AuditResult): Finding {
       (r.direct
         ? "It is a direct dependency, so the fix is a version bump in package.json. "
         : "It is pulled in transitively; updating the parent package is the usual fix. ") +
+      transitiveFix +
+      priorityNote(r) +
       (r.inst.fromRange
         ? "No package-lock.json was found, so this checks the lowest version package.json allows; commit a lockfile so the exact installed versions can be audited. "
         : "") +
@@ -383,6 +462,49 @@ function depEntries(content: string): DepEntry[] {
   return out;
 }
 
+/**
+ * Add entries to package.json's "overrides" with the fewest changed lines. A new "overrides" block goes
+ * after the last top-level property, which gains a trailing comma (the one owner line that changes).
+ * Inside an existing block, entries are inserted after its opening line. Names already overridden are left alone.
+ */
+function addOverrides(content: string, add: Map<string, string>): { text: string; removed?: string } | null {
+  let pkg: Record<string, unknown>;
+  try {
+    pkg = JSON.parse(content) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  const existing = asRecord(pkg.overrides);
+  const todo = [...add].filter(([n]) => !(existing && n in existing));
+  if (todo.length === 0) return null;
+  const nl = content.includes("\r\n") ? "\r\n" : "\n";
+  const lines = content.split(/\r?\n/);
+  const indent = /^(\s+)"/.exec(lines.find((l) => /^\s+"/.test(l)) ?? "")?.[1] ?? "  ";
+  const entry = (n: string, v: string, comma: boolean) => `${indent}${indent}${JSON.stringify(n)}: ${JSON.stringify("^" + v)}${comma ? "," : ""}`;
+
+  if (existing) {
+    const at = lines.findIndex((l) => /^\s*"overrides"\s*:\s*\{\s*$/.test(l));
+    if (at < 0) return null; // one-line or unusual formatting: leave it to the owner
+    const nonEmpty = Object.keys(existing).length > 0;
+    const block = todo.map(([n, v], i) => entry(n, v, nonEmpty || i < todo.length - 1));
+    lines.splice(at + 1, 0, ...block);
+    return { text: lines.join(nl) };
+  }
+  // The root object's closing brace and the last line with content before it.
+  let close = lines.length - 1;
+  while (close >= 0 && lines[close].trim() === "") close--;
+  if (close < 0 || lines[close].trim() !== "}") return null;
+  let last = close - 1;
+  while (last >= 0 && lines[last].trim() === "") last--;
+  if (last < 0) return null;
+  const removed = lines[last].trim();
+  const needsComma = !/[,{]\s*$/.test(lines[last]);
+  if (needsComma) lines[last] = lines[last].replace(/\s*$/, ",");
+  const block = [`${indent}"overrides": {`, ...todo.map(([n, v], i) => entry(n, v, i < todo.length - 1)), `${indent}}`];
+  lines.splice(last + 1, 0, ...block);
+  return { text: lines.join(nl), removed: needsComma ? removed : undefined };
+}
+
 /** The trimmed text of the line holding offset `at` (trim also drops a CRLF's \r). */
 function lineAround(content: string, at: number): string {
   const from = content.lastIndexOf("\n", at - 1) + 1;
@@ -424,21 +546,39 @@ export const dependencyAudit: Check = {
       edits.push({ start: e.start, end: e.end, text: `^${r.bumpTo}` });
       bumps.push(`${r.inst.name} → ^${r.bumpTo}`);
     }
-    if (edits.length === 0) return null;
     // One allowed removal per changed line: two bumps on a one-line object still remove that line once.
     const removals = [...new Set(edits.map((e) => lineAround(content, e.start)))];
     let after = content;
     for (const e of [...edits].sort((a, b) => b.start - a.start)) after = after.slice(0, e.start) + e.text + after.slice(e.end);
+
+    // Transitive packages: an npm override, only within the same major version so the parent keeps working.
+    const overrides = new Map<string, string>();
+    for (const r of results) {
+      if (r.direct || !r.bumpTo || r.inst.fromRange || !sameMajor(r.inst.version, r.bumpTo)) continue;
+      const prev = overrides.get(r.inst.name);
+      if (!prev || cmpVer(r.bumpTo, prev) > 0) overrides.set(r.inst.name, r.bumpTo);
+    }
+    const added = overrides.size ? addOverrides(after, overrides) : null;
+    if (added) {
+      after = added.text;
+      if (added.removed) removals.push(added.removed);
+    }
     if (after === content) return null;
+    const pinned = [...overrides].map(([n, v]) => `${n} → ^${v}`);
+    const parts = [
+      bumps.length ? `bump ${bumps.length} direct dependenc${bumps.length === 1 ? "y" : "ies"}` : "",
+      added ? `pin ${overrides.size} transitive dependenc${overrides.size === 1 ? "y" : "ies"}` : "",
+    ].filter(Boolean);
 
     return {
       id: "dependency-audit-1",
       checkId: "dependency-audit",
-      title: `Bump ${edits.length} vulnerable direct dependenc${edits.length === 1 ? "y" : "ies"} to patched versions`,
+      title: `${parts.join(" and ").replace(/^./, (c) => c.toUpperCase())} to patched versions`,
       class: "minimal-edit",
       reason:
-        `Declared ranges currently admit known-vulnerable versions (${bumps.join(", ")}). ` +
-        "The bump is verified only after npm install + tests pass in CI, because the lockfile only refreshes then; " +
+        (bumps.length ? `Declared ranges currently admit known-vulnerable versions (${bumps.join(", ")}). ` : "") +
+        (added ? `npm overrides force patched versions of packages your dependencies pull in (${pinned.join(", ")}), staying within each package's major version. ` : "") +
+        "The change is verified only after npm install + tests pass (CI or the isolated verify build), because the lockfile only refreshes then; " +
         "risk reduced once a patched version is actually installed.",
       edits: [{ kind: "modify", path: "package.json", before: content, after }],
       allowedRemovals: removals, // the original text of each changed line

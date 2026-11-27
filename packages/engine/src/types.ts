@@ -136,5 +136,12 @@ export interface ScanReport {
   total: number;
   /** Checks that did not apply to this repo. */
   skipped?: number;
+  /** Open findings by severity, across every applicable check. */
+  open?: Record<Severity, number>;
+  /**
+   * The worst open severity, in words. The score counts passing checks; this says how bad what is
+   * left is, so "59/100" never hides an open critical.
+   */
+  risk?: "critical" | "high" | "medium" | "low" | "clear";
   results: CheckResult[];
 }

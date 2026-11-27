@@ -110,6 +110,10 @@ function refreshLock(repo: RepoSnapshot): RepoSnapshot {
   };
 }
 
+/** The fixer pins the vulnerable transitive ms@2.0.0 with an npm override; strip that block to compare the rest. */
+const MS_OVERRIDE = /,(\r?\n)  "overrides": \{\r?\n    "ms": "\^2\.0\.1"\r?\n  \}/;
+const withoutOverride = (s: string) => s.replace(MS_OVERRIDE, "");
+
 describe("dependency-audit", () => {
   it("flags vulnerable direct and transitive packages with fixed versions and chains", async () => {
     const f = await dependencyAudit.detect({ repo: vuln, fetch: osvMock(VULNS) });
@@ -172,17 +176,19 @@ describe("dependency-audit", () => {
     await expect(dependencyAudit.detect({ repo: vuln, fetch: broken })).rejects.toThrow(/HTTP 503/);
   });
 
-  it("fix bumps only direct deps in package.json, passes the guard, and the re-scan is clean after install", async () => {
+  it("fix bumps direct deps, pins transitive ones with an override, passes the guard, and the re-scan is clean after install", async () => {
     const ctx = { repo: vuln, fetch: osvMock(VULNS) };
     const patch = await dependencyAudit.fix!(ctx, await dependencyAudit.detect(ctx));
     expect(patch?.class).toBe("minimal-edit");
-    expect(patch?.allowedRemovals).toEqual([`"lodash": "^4.17.20"`]); // transitive ms is not ours to bump
-    expect(patch!.reason).toContain("verified only after npm install + tests pass in CI");
+    // lodash is bumped in place; the last line before the new overrides block gains a comma.
+    expect(patch?.allowedRemovals).toEqual([`"lodash": "^4.17.20"`, "}"]);
+    expect(patch!.reason).toContain("verified only after npm install + tests pass");
     expect(guardPatch(vuln, patch!).ok).toBe(true);
 
     const fixed = applyPatch(vuln, patch!); // throws GuardRejected if the guard says no
     const pkg = fixed.files.find((x) => x.path === "package.json")!.content;
     expect(pkg).toContain(`"lodash": "^4.17.21"\n`);
+    expect(pkg).toMatch(MS_OVERRIDE);
     expect(pkg).toContain(`"express": "^4.18.2",`); // untouched
     expect(await dependencyAudit.detect({ repo: refreshLock(fixed), fetch: osvMock(VULNS) })).toEqual([]);
   });
@@ -200,7 +206,8 @@ describe("dependency-audit", () => {
     expect(patch).not.toBeNull();
     expect(guardPatch(crlf, patch!).ok).toBe(true);
     const after = applyPatch(crlf, patch!).files.find((f) => f.path === "package.json")!.content;
-    expect(after).toBe(PKG.replace('"lodash": "^4.17.20"', '"lodash": "^4.17.21"').replace(/\n/g, "\r\n"));
+    expect(withoutOverride(after)).toBe(PKG.replace('"lodash": "^4.17.20"', '"lodash": "^4.17.21"').replace(/\n/g, "\r\n"));
+    expect(after).not.toMatch(/[^\r]\n/);
   });
 
   it("picks the fix from the range that contains the installed version", async () => {
@@ -230,7 +237,7 @@ describe("dependency-audit", () => {
     const ctx = { repo, fetch: osvMock(VULNS) };
     const patch = await dependencyAudit.fix!(ctx, await dependencyAudit.detect(ctx));
     const after = applyPatch(repo, patch!).files.find((x) => x.path === "package.json")!.content;
-    expect(after).toBe(pkg.replace('"lodash": "^4.17.20"', '"lodash": "^4.17.21"'));
+    expect(withoutOverride(after)).toBe(pkg.replace('"lodash": "^4.17.20"', '"lodash": "^4.17.21"'));
   });
 
   it("skips past a fix version that a later advisory affects", async () => {
@@ -262,7 +269,7 @@ describe("dependency-audit", () => {
     expect(patch).not.toBeNull();
     expect(guardPatch(repo, patch!).ok).toBe(true);
     const after = applyPatch(repo, patch!).files.find((x) => x.path === "package.json")!.content;
-    expect(after).toBe(pkg.replace('"lodash": "4.17.20"', '"lodash": "^4.17.21"'));
+    expect(withoutOverride(after)).toBe(pkg.replace('"lodash": "4.17.20"', '"lodash": "^4.17.21"'));
   });
 
   it("splits a large lockfile into querybatch requests of at most 1000", async () => {

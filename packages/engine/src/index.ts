@@ -9,3 +9,6 @@ export { replayDemo, attackPaths, type ReplayReport, type AttackReceipt, type At
 export { summarize } from "./registry.js";
 export { runSiteScan, siteChecks, headerRemedy, type SiteSnapshot, type SiteCheck } from "./site/index.js";
 export { tags, resolve } from "./site/html.js";
+export { buildChangeReport, changeReportMarkdown, changeReportHtml, type ChangeReport, type ChangeReportInput, type Verification } from "./report.js";
+export { cycloneDx, lockGraph, importersOf } from "./deps/graph.js";
+export { analyseRepo, type Flow, type FlowCategory } from "./analysis/taint.js";

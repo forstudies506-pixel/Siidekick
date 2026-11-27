@@ -4,7 +4,7 @@ import { gzipSync, gunzipSync } from "node:zlib";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { createClient } from "redis";
-import type { RepoSnapshot, ScanReport, GuardResult, DiffLine, Patch } from "@siidekick/engine";
+import type { RepoSnapshot, ScanReport, GuardResult, DiffLine, Patch, ReplayReport, Verification } from "@siidekick/engine";
 
 export interface PatchEntry {
   patchId: string;
@@ -31,6 +31,14 @@ export interface ScanRecord {
   // Set by POST /api/sites: a passive scan of a live website. There is no code, so no patches.
   kind?: "site";
   site?: { url: string; finalUrl: string; fetchedAt: string };
+  // The last attack replay (demo shop only), so the change report can cite it.
+  replay?: ReplayReport;
+  // Result of the isolated verify build (AWS CodeBuild), when the pipeline ran it.
+  verification?: Verification & { status: "pending" | "running" | "done" | "failed"; buildId?: string; startedAt?: string };
+  // Grounded AI explanations, keyed by finding key (check|file|line), with the model that wrote them.
+  explanations?: Record<string, { text: string; model: string; advisory?: string; at: string }>;
+  // The AWS Step Functions run that processed this scan, when the async pipeline is on.
+  pipeline?: { executionArn: string; status: string; stage?: string; updatedAt: string; error?: string };
 }
 
 export interface Store {
