@@ -22,6 +22,9 @@ function nodeSetup(files: { path: string; content: string }[]): string {
   return "node-version: 22";
 }
 
+/** The Siidekick Action, pinned to a commit so ci-security's pinning rule holds for our own step too. */
+export const SIIDEKICK_ACTION = "forstudies506-pixel/Siidekick/action@aa6c854d031959aaddd4fcafee675f036372d5bd"; // main, 2026-11-28
+
 /** The workflow, built for this repo. Passes Siidekick's own ci-security check: read-only token, first-party actions. */
 function workflowYml(files: { path: string; content: string }[]): string {
   const hasLock = files.some((f) => f.path === "package-lock.json" || f.path === "npm-shrinkwrap.json");
@@ -48,6 +51,8 @@ jobs:
       - run: ${hasLock ? "npm ci --ignore-scripts" : "npm install --ignore-scripts"}
       - run: npm test --if-present
       - run: npm audit --audit-level=high || true
+      # Siidekick on every push and pull request: findings as annotations and a job summary.
+      - uses: ${SIIDEKICK_ACTION}
 `;
 }
 
@@ -80,7 +85,7 @@ export const ciWorkflow: Check = {
       checkId: "ci-workflow",
       title: "Add siidekick CI workflow",
       class: "additive",
-      reason: "Runs install, tests, and a high-severity audit on every push and pull request, on the Node version the project asks for, with a read-only token.",
+      reason: "Runs install, tests, a high-severity audit and a Siidekick scan on every push and pull request, on the Node version the project asks for, with a read-only token. The Siidekick step sends the repo's text files (never .env files) to the Siidekick API, which reads them and does not run them.",
       edits: [{ kind: "create", path: WORKFLOW_PATH, content: workflowYml(repo.files) }],
     };
   },

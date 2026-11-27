@@ -33,6 +33,7 @@ describe("ci-workflow", () => {
     expect(wf.content).toContain("npm install --ignore-scripts"); // no lockfile in this repo
     expect(wf.content).toContain("npm test --if-present");
     expect(wf.content).toContain("npm audit --audit-level=high || true");
+    expect(wf.content).toMatch(/uses: forstudies506-pixel\/Siidekick\/action@[0-9a-f]{40}\n/); // pinned, so ci-security stays clean
     expect(await ciWorkflow.detect({ repo: fixed })).toEqual([]);
   });
 
