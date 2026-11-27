@@ -10,7 +10,7 @@ Siidekick is for Indian students, small shops and colleges that need plain-langu
 
 ## What it does
 
-Siidekick scans any live website passively (16 checks: TLS, headers, cookies, forms, scripts, AI keys called from the browser) or any public GitHub repo (19 checks, including the AI-era ones: hallucinated packages, server keys in the client bundle, open Firebase or Supabase rules, unverified login tokens). Each finding is explained in plain words.
+Siidekick scans source code: any public GitHub repo or an uploaded folder (36 checks, including the AI-era ones: hallucinated packages, server keys in the client bundle, open Firebase or Supabase rules, unverified login tokens). Each finding is explained in plain words.
 
 For a repo it proposes add-only patches, shows the diff and waits for owner approval. After approval it rescans and reports the score change. On the demo shop it then boots the app before and after the patches and fires the same attacks at both, with a control request that proves real users still get through.
 

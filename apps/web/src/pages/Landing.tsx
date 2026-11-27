@@ -14,7 +14,7 @@ const groupLabels: Record<CheckGroup, string> = {
   "G-enterprise": "Enterprise",
 };
 
-// The AI-era checks the engine ships (group F-ai, plus site-ai-direct). Ids match packages/engine.
+// The AI-era checks the engine ships (group F-ai). Ids match packages/engine.
 const aiRisks = [
   {
     id: "hallucinated-package",
@@ -40,19 +40,13 @@ const aiRisks = [
     title: "Login tokens read but never verified",
     body: "decode() trusts whatever a token says. A forged token that claims to be an admin gets in.",
   },
-  {
-    id: "site-ai-direct",
-    where: "Live site",
-    title: "The browser calls an AI model directly",
-    body: "If the page talks to an AI API itself, the key and the prompt are in plain view. Anyone can spend your quota or rewrite the instructions.",
-  },
 ];
 
 const steps = [
-  ["Scan", "Paste a site address or a GitHub repo. A site is read the way any browser sees it. A repo is read file by file."],
-  ["Explain", "Each failing check says what is wrong, why it matters to you, and where it is, in plain words."],
-  ["Approve", "Repo fixes arrive as add-only patches. The diff guard refuses any that deletes or rewrites your code. Nothing lands until you approve."],
-  ["Rescan", "The patched copy is scanned again, so the score you see after is measured, not promised."],
+  ["Scan", "Paste a GitHub repo or upload your project folder. The code is read file by file and never run on our server."],
+  ["Explain", "Each failing check says what is wrong, why it matters to you, and where it is, in plain words, in your language."],
+  ["Approve", "Fixes arrive as add-only patches. The diff guard refuses any that deletes or rewrites your code. Nothing lands until you approve."],
+  ["Prove", "Your original and fixed code run in a throwaway AWS build: install, your own tests, an independent audit. Verified means proven."],
 ];
 
 /** Dots that brighten under the pointer. Draws once, then only when the pointer moves. */
@@ -130,7 +124,7 @@ function ScanForm() {
   return (
     <form className="hero-form" onSubmit={submit}>
       <label className="visually-hidden" htmlFor="hero-url">
-        Website or GitHub repo address
+        GitHub repo address
       </label>
       <input
         id="hero-url"
@@ -138,7 +132,7 @@ function ScanForm() {
         inputMode="url"
         autoComplete="url"
         spellCheck={false}
-        placeholder="yourshop.in  or  github.com/you/app"
+        placeholder="github.com/you/app"
         value={value}
         onChange={(e) => setValue(e.target.value)}
       />
@@ -149,7 +143,7 @@ function ScanForm() {
   );
 }
 
-type CheckList = { repo: CheckInfo[]; site: CheckInfo[] };
+type CheckList = { repo: CheckInfo[] };
 
 function CheckColumn({ title, note, items }: { title: string; note: string; items: CheckInfo[] }) {
   return (
@@ -188,9 +182,8 @@ function LiveChecks() {
   if (error) return <p className="checks-state">The check list could not load. {error}</p>;
   if (!list) return <p className="checks-state" aria-live="polite">Loading the checks from the engine…</p>;
   return (
-    <div className="check-cols">
-      <CheckColumn title="On a live site" note="Headers, TLS, cookies, scripts and the HTML any visitor receives." items={list.site} />
-      <CheckColumn title="In a repo" note="Source, config and dependencies, read file by file." items={list.repo} />
+    <div className="check-cols is-single">
+      <CheckColumn title="In your code" note="Source, config and dependencies, read file by file." items={list.repo} />
     </div>
   );
 }
@@ -208,15 +201,15 @@ export function Landing() {
               before an <em>AI</em> does.
             </h1>
             <p className="hero-sub">
-              Paste any website or GitHub repo. Siidekick reads it the way an attacker would, explains each risk in
-              plain words, and hands you the exact fix.
+              Paste your GitHub repo. Siidekick reads the code the way an attacker would, explains each risk in your
+              language, and hands you a fix it has proven works.
             </p>
             <ScanForm />
             <div className="hero-foot">
               <a className="text-link" href="/app?demo=1">
-                No site handy? Scan the demo shop <ArrowRight size={16} aria-hidden="true" />
+                No repo handy? Scan the demo shop <ArrowRight size={16} aria-hidden="true" />
               </a>
-              <span>Reads only what any browser sees. No login, no attack traffic.</span>
+              <span>Your code is read as text, never run on our server. No login needed.</span>
             </div>
           </div>
         </section>
@@ -270,7 +263,7 @@ export function Landing() {
         </section>
       </main>
       <footer className="site-footer">
-        <p className="limit-line">Siidekick reduces risk. No tool can promise a site is unhackable, and this one does not.</p>
+        <p className="limit-line">Siidekick reduces risk. No tool can promise an app is unhackable, and this one does not.</p>
         <div>
           <span>Live on Vercel. AWS Lambda build in the repo.</span>
           <a href="https://github.com/forstudies506-pixel/Siidekick" target="_blank" rel="noreferrer">

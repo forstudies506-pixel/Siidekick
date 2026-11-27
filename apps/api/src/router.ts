@@ -13,9 +13,6 @@ import {
   type DiffLine,
   type Check,
   type FileEdit,
-  runSiteScan,
-  siteChecks,
-  type SiteSnapshot,
 } from "@siidekick/engine";
 import * as z from "zod";
 import { readFile } from "node:fs/promises";
@@ -27,7 +24,6 @@ import { fetchGithubRepo, GithubError, parseGithubUrl } from "./github.js";
 import { explainFinding, isLang, LANGUAGES, type ConverseFn, type ExplainResult } from "./ai.js";
 import { buildSourceZip, type JobMeta, type Verdict, type VerifyBackend } from "./verify.js";
 import { openPullRequest, prBody, PullRequestError } from "./pullRequest.js";
-import { fetchSite, SiteError, takeScanSlot } from "./site.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -40,7 +36,6 @@ const scanBodySchema = z.object({
 });
 
 const githubBodySchema = z.object({ url: z.string().max(300) });
-const siteBodySchema = z.object({ url: z.string().min(1).max(2048) });
 const explainBodySchema = z.object({
   checkId: z.string().min(1).max(80),
   index: z.number().int().min(0).max(500).default(0),
@@ -183,7 +178,6 @@ export function makeRouter(deps: {
   store: Store;
   fetch?: typeof fetch;
   replayRuntime?: string;
-  fetchSite?: (url: string) => Promise<SiteSnapshot>;
   /** Amazon Bedrock, when configured: explains findings. Absent locally and on Vercel. */
   ai?: { modelId: string; converse: () => Promise<ConverseFn> };
   /** S3 + Step Functions + CodeBuild, when configured: verifies approved fixes in an isolated build. */
@@ -216,7 +210,7 @@ export function makeRouter(deps: {
       group: c.group,
       severity: c.severity,
     });
-    return { status: 200, body: { repo: registry.map(row), site: siteChecks.map(row) } };
+    return { status: 200, body: { repo: registry.map(row) } };
   }
 
   async function saveScan(
@@ -264,32 +258,6 @@ export function makeRouter(deps: {
     }
   }
 
-  async function siteScanHandler(_params: Record<string, string>, body: unknown): Promise<{ status: number; body: unknown }> {
-    const parsed = siteBodySchema.safeParse(body);
-    if (!parsed.success) return { status: 400, body: { error: "invalid request body" } };
-    if (!takeScanSlot()) return { status: 429, body: { error: "too many website scans right now; try again in a minute" } };
-    let snap: SiteSnapshot;
-    try {
-      snap = await (deps.fetchSite ?? fetchSite)(parsed.data.url);
-    } catch (err) {
-      if (err instanceof SiteError) return { status: err.status, body: { error: err.message } };
-      throw err;
-    }
-    const report = runSiteScan(snap);
-    const id = crypto.randomUUID();
-    const site = { url: snap.requested, finalUrl: snap.url, fetchedAt: snap.fetchedAt };
-    // The page itself is not stored: it can be large and it is the site's content, not ours.
-    await store.put(id, {
-      id,
-      createdAt: new Date().toISOString(),
-      repo: { name: new URL(snap.url).host, files: [] },
-      report,
-      kind: "site",
-      site,
-    });
-    return { status: 201, body: { id, report, kind: "site", site } };
-  }
-
   async function getScanHandler(params: Record<string, string>): Promise<{ status: number; body: unknown }> {
     if (!UUID_RE.test(params.id)) return { status: 400, body: { error: "invalid id" } };
     const record = await store.get(params.id);
@@ -307,7 +275,6 @@ export function makeRouter(deps: {
         github: record.source ? `${record.source.owner}/${record.source.repo}` : undefined,
         latestVerify: record.latestVerify,
         features: features(),
-        ...(record.kind ? { kind: record.kind, site: record.site } : {}),
         ...(anyApproved ? { approvedSummary: await approvedSummary(record) } : {}),
       },
     };
@@ -317,7 +284,6 @@ export function makeRouter(deps: {
     if (!UUID_RE.test(params.id)) return { status: 400, body: { error: "invalid id" } };
     const record = await store.get(params.id);
     if (!record) return { status: 404, body: { error: "not found" } };
-    if (record.kind === "site") return { status: 400, body: { error: "website scans report fixes; there is no code to patch" } };
 
     let current: RepoSnapshot = { name: record.repo.name, files: [...record.repo.files] };
     const beforeReport: ScanReport = record.report;
@@ -513,7 +479,6 @@ export function makeRouter(deps: {
         lang,
         patchReason,
         repo: record.repo.name,
-        kind: record.kind,
       });
     } catch (err) {
       console.error("bedrock explain failed:", err);
@@ -541,7 +506,6 @@ export function makeRouter(deps: {
     if (!deps.verify) return { status: 503, body: { error: "isolated verification needs AWS CodeBuild, which is not configured on this server", available: false } };
     const record = await store.get(params.id);
     if (!record) return { status: 404, body: { error: "not found" } };
-    if (record.kind === "site") return { status: 400, body: { error: "website scans have no code to build" } };
     const approved = (record.patches ?? []).filter((p) => p.approved).map((p) => p.patchId);
     if (approved.length === 0) return { status: 409, body: { error: "approve at least one fix first" } };
     if (!record.repo.files.some((f) => f.path === "package.json")) {
@@ -660,7 +624,6 @@ export function makeRouter(deps: {
     { method: "POST", path: "api/scans", handler: createScanHandler },
     { method: "POST", path: "api/scans/demo", handler: demoScanHandler },
     { method: "POST", path: "api/scans/github", handler: githubScanHandler },
-    { method: "POST", path: "api/sites", handler: siteScanHandler },
     { method: "GET", path: "api/scans/:id", handler: getScanHandler },
     { method: "POST", path: "api/scans/:id/patches", handler: patchesHandler },
     { method: "POST", path: "api/scans/:id/patches/:patchId/approve", handler: approveHandler },

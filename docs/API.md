@@ -14,8 +14,7 @@ Storage (`GET /api/health` reports which one as `storage`):
 | Method and path | Body | Answer |
 |---|---|---|
 | `GET /api/health` | none | `{ ok: true, checks, storage }` |
-| `GET /api/checks` | none | `{ repo: CheckInfo[], site: CheckInfo[] }`, read from the engine registry. Today 19 repo and 16 site checks |
-| `POST /api/sites` | `{ url }` (1 to 2048 chars) | `201 { id, report, kind: "site", site: { url, finalUrl, fetchedAt } }` |
+| `GET /api/checks` | none | `{ repo: CheckInfo[] }`, read from the engine registry |
 | `POST /api/scans` | `{ name, files: [{ path, content }] }` | `201 { id, report }`. At most 500 files and 2 MB; paths relative POSIX, no `..`, no NUL |
 | `POST /api/scans/github` | `{ url }` (public github.com repo, ≤300 chars) | `201 { id, report, omitted? }`. `omitted` counts text files left out past the size caps |
 | `POST /api/scans/demo` | none | `201 { id, report }` for the bundled demo shop; the record is marked `demo: true` |
@@ -30,22 +29,6 @@ Storage (`GET /api/health` reports which one as `storage`):
 
 `:id` must be a UUID (`400 invalid id`); an unknown one is `404 not found`.
 
-## `POST /api/sites` in detail
-
-A passive read of a public website: the page, its same-origin scripts (at most 8), the `http://` redirect, `/.well-known/security.txt`, and up to 4 linked source maps. Nothing on the site is run and no attack traffic is sent.
-
-- Every hop, redirects included (at most 5), is checked against private and reserved address space when the socket connects, so a hostname that rebinds to an internal address is refused.
-- Limits: 1.5 MB of HTML, 1 MB per script, 8 s per hop, 20 s for the whole scan.
-- At most 20 site scans a minute per server instance; past that, `429`.
-- Errors: `400` for a private address or an unusable URL, `502` for an unreadable redirect or too many redirects, `504` for a timeout.
-- The page body is not stored. The record keeps only the report and `{ url, finalUrl, fetchedAt }`.
-- Site findings are a report only: a site has no patches, so `/patches`, `/prove` and `/download` do not apply.
-
-```bash
-curl -s -X POST https://siidekick.ashforge.cv/api/sites \
-  -H 'Content-Type: application/json' -d '{"url":"example.com"}'
-```
-
 ## `GET /api/checks` in detail
 
 The landing page reads this list, so it always shows what a scan runs. Nothing in the web app hardcodes it.
@@ -53,3 +36,7 @@ The landing page reads this list, so it always shows what a scan runs. Nothing i
 ```bash
 curl -s https://siidekick.ashforge.cv/api/checks
 ```
+
+## Removed
+
+`POST /api/sites` (passive website scans) was removed on 2026-11-28: Siidekick scans source code only. It returns `404`.

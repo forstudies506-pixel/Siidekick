@@ -311,3 +311,12 @@ describe("cachedScanFetch", () => {
     expect(missing.calls).toHaveLength(3);
   });
 });
+
+describe("source code only", () => {
+  it("has no website scanning route", async () => {
+    const res = await router.handle({ method: "POST", path: "/api/sites", body: { url: "https://www.youtube.com" } });
+    expect(res.status).toBe(404);
+    const checks = await router.handle({ method: "GET", path: "/api/checks" });
+    expect(Object.keys(checks.body as object)).toEqual(["repo"]);
+  });
+});

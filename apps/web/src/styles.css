@@ -754,6 +754,9 @@ kbd {
 .steps p { margin: 10px 0 0; color: var(--muted); font-size: 15px; }
 
 .check-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.check-cols.is-single { grid-template-columns: minmax(0, 1fr); }
+.check-cols.is-single ul { columns: 2 320px; column-gap: 32px; }
+.check-cols.is-single li { break-inside: avoid; }
 .check-col { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 28px; }
 .check-col-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
 .check-col-head h3 { font-size: 24px; }

@@ -1,6 +1,6 @@
 # Siidekick
 
-**Find the hole before an AI does.** Siidekick scans a website or a GitHub repo for the security mistakes AI-assisted attackers look for first, and the ones AI-written code tends to ship. It explains each one in plain words and proposes small fixes that **add** code. Nothing lands until the owner approves it.
+**Find the hole before an AI does.** Siidekick scans your source code (a GitHub repo or a project folder) for the security mistakes AI-assisted attackers look for first, and the ones AI-written code tends to ship. It explains each one in plain words and proposes small fixes that **add** code. Nothing lands until the owner approves it.
 
 It reduces risk. It does not make anything "unhackable".
 
@@ -10,15 +10,6 @@ Built for the Campus to Cloud Hackathon (AWS, Techfest 2026-27) for small shops,
 
 ## What you can do
 
-- **Scan a website.** It is a passive read, the way a browser loads the page:
-  - TLS and HSTS
-  - CSP, clickjacking and other headers
-  - cookies, CORS and forms
-  - secrets and AI keys in page scripts
-  - mixed content, SRI, version leaks, source maps
-  - `security.txt`
-
-  It sends no attack traffic and does not store the page.
 - **Scan a public GitHub repo, a folder, or the demo shop.** It looks for:
   - leaked secrets, unprotected admin routes, rate limiting
   - headers, CORS, SQL built from strings, input validation

@@ -28,9 +28,6 @@ export interface ScanRecord {
   demo?: true;
   // Text files left out of a GitHub repo past the size caps; the report covers the rest.
   omitted?: number;
-  // Set by POST /api/sites: a passive scan of a live website. There is no code, so no patches.
-  kind?: "site";
-  site?: { url: string; finalUrl: string; fetchedAt: string };
   // Set for scans started from a GitHub URL, so a pull request can target the same repo and branch.
   source?: { type: "github"; owner: string; repo: string; ref: string };
   // Bedrock explanations already generated, keyed "<checkId>:<index>:<lang>", so each costs one model call.

@@ -1,6 +1,6 @@
 # Siidekick: build summary
 
-**Making cybersecurity accessible to all and safe for all.** Siidekick finds the security holes in a small team's website or Node.js repo, explains each one in the owner's own language, proposes small fixes that only add code, and proves each fix in an isolated AWS build before anyone merges it.
+**Making cybersecurity accessible to all and safe for all.** Siidekick finds the security holes in a small team's source code (Node.js repos first), explains each one in the owner's own language, proposes small fixes that only add code, and proves each fix in an isolated AWS build before anyone merges it.
 
 ## The AWS architecture
 

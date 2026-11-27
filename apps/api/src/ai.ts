@@ -42,9 +42,9 @@ export interface ExplainResult {
 }
 
 /** What the model may use: the finding and, when there is one, the proposed patch's reason. Nothing else. */
-export function evidenceFor(f: Finding, extra: { patchReason?: string; repo?: string; kind?: string } = {}): string {
+export function evidenceFor(f: Finding, extra: { patchReason?: string; repo?: string } = {}): string {
   const lines = [
-    `TARGET: ${extra.kind === "site" ? "website" : "code repository"} ${extra.repo ?? ""}`.trim(),
+    `TARGET: code repository ${extra.repo ?? ""}`.trim(),
     `CHECK: ${f.checkId}`,
     `TITLE: ${f.title}`,
     `SEVERITY: ${f.severity}`,
@@ -142,7 +142,6 @@ export async function explainFinding(opts: {
   lang: Lang;
   patchReason?: string;
   repo?: string;
-  kind?: string;
 }): Promise<ExplainResult> {
   const t0 = Date.now();
   const evidence = evidenceFor(opts.finding, opts);

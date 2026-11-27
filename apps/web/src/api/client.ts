@@ -15,12 +15,6 @@ export interface PatchEntry {
   diff: FileDiff[];
 }
 
-/** Where a website scan looked, after redirects. */
-export interface SiteInfo {
-  url: string;
-  finalUrl: string;
-  fetchedAt: string;
-}
 
 export interface ScanResponse {
   id: string;
@@ -28,9 +22,6 @@ export interface ScanResponse {
   mock: boolean;
   /** Text files of a big GitHub repo left out past the size caps. */
   omitted?: number;
-  /** Set for a live website scan: report only, nothing to patch. */
-  kind?: "site";
-  site?: SiteInfo;
 }
 
 export interface PatchResponse {
@@ -84,7 +75,7 @@ async function request<T>(path: string, init: RequestInit, valid: (v: unknown) =
   } catch {
     throw new ApiUnavailable("not json");
   }
-  // A 5xx with a reason the server chose to say (a site that could not be reached) is shown as is.
+  // A 5xx with a reason the server chose to say (a repo that could not be fetched) is shown as is.
   if (res.status >= 500) {
     if (isObj(body) && typeof body.error === "string" && body.error !== "internal") throw new Error(body.error);
     throw new ApiUnavailable(String(res.status));
@@ -126,7 +117,7 @@ export function uploadScan(name: string, files: RepoFile[]): Promise<ScanRespons
   );
 }
 
-// GitHub and website scans only work on the real API: sample data has no copy of someone else's code or site.
+// GitHub scans only work on the real API: sample data has no copy of someone else's code.
 async function liveScan(path: string, url: string): Promise<ScanResponse> {
   mockApproved.clear();
   try {
@@ -145,10 +136,7 @@ async function liveScan(path: string, url: string): Promise<ScanResponse> {
 
 export const githubScan = (url: string) => liveScan("/api/scans/github", url);
 
-/** Passive scan of a live website: reads its headers, cookies and HTML. */
-export const siteScan = (url: string) => liveScan("/api/sites", url);
-
-/** github.com/owner/repo goes to the repo scanner; any other address is scanned as a website. */
+/** True for a github.com/owner/repo address, the only kind of URL Siidekick scans. */
 export function isGithubRepo(input: string): boolean {
   try {
     const u = new URL(/^[a-z]+:\/\//i.test(input.trim()) ? input.trim() : `https://${input.trim()}`);
@@ -166,9 +154,9 @@ export interface CheckInfo {
   severity: Severity;
 }
 
-const validCheckList = (v: unknown) => isObj(v) && Array.isArray(v.repo) && Array.isArray(v.site);
+const validCheckList = (v: unknown) => isObj(v) && Array.isArray(v.repo);
 
-export function getChecks(): Promise<{ repo: CheckInfo[]; site: CheckInfo[] }> {
+export function getChecks(): Promise<{ repo: CheckInfo[] }> {
   return live(request("/api/checks", { method: "GET" }, validCheckList));
 }
 
@@ -235,8 +223,6 @@ export interface StoredScan {
   omitted?: number;
   demo?: boolean;
   approvedSummary?: ApprovedSummary;
-  kind?: "site";
-  site?: SiteInfo;
 }
 
 export async function getScan(id: string): Promise<StoredScan> {

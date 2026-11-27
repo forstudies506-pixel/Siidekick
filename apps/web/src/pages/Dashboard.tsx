@@ -12,7 +12,6 @@ import {
   isMockSession,
   isGithubRepo,
   proveFix,
-  siteScan,
   uploadScan,
   type AttackPath,
   type ApprovedSummary,
@@ -23,7 +22,6 @@ import {
   type PatchEntry,
   type PatchResponse,
   type ScanResponse,
-  type SiteInfo,
   type Features,
 } from "../api/client";
 import { AI_LANGS, AiExplain, DependencyChain, PullRequestPanel, VerifyPanel } from "../components/AwsPanels";
@@ -576,7 +574,7 @@ type Busy = "" | "scan" | "patches" | "restore" | "approve-all";
 type Step = "connect" | "findings" | "fixes" | "verify";
 type Filter = "failing" | "passed" | "na" | "all";
 type View = "severity" | "category";
-type Source = "github" | "upload" | "demo" | "site";
+type Source = "github" | "upload" | "demo";
 type Report = ScanResponse["report"];
 
 const STEPS: { id: Step; label: string }[] = [
@@ -587,7 +585,7 @@ const STEPS: { id: Step; label: string }[] = [
 ];
 const SEVERITIES: Severity[] = ["critical", "high", "medium", "low", "info"];
 const SEV_ORDER: Record<Severity, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
-const SOURCE_LABEL: Record<Source, string> = { github: "GitHub", upload: "folder", demo: "demo", site: "website" };
+const SOURCE_LABEL: Record<Source, string> = { github: "GitHub", upload: "folder", demo: "demo" };
 
 interface Recent {
   id: string;
@@ -613,7 +611,7 @@ function loadRecent(): Recent[] {
           typeof r.repo === "string" &&
           typeof r.score === "number" &&
           typeof r.at === "string" &&
-          (r.source === "github" || r.source === "upload" || r.source === "demo" || r.source === "site") &&
+          (r.source === "github" || r.source === "upload" || r.source === "demo") &&
           (r.url === undefined || typeof r.url === "string"),
       )
       .slice(0, MAX_RECENT);
@@ -686,7 +684,7 @@ function toMarkdown(report: Report, target: string, summary: ApprovedSummary | n
       if (f.remedy) out.push("", "  Fix:", "", "  ```", ...f.remedy.split("\n").map((l) => `  ${l}`), "  ```");
     }
   }
-  out.push("", "---", "Siidekick reduces risk. No tool can promise a site is unhackable.", "");
+  out.push("", "---", "Siidekick reduces risk. No tool can promise an app is unhackable.", "");
   return out.join("\n");
 }
 
@@ -730,7 +728,6 @@ export function Dashboard() {
   const [selectedPatch, setSelectedPatch] = useState("");
   const [recent, setRecent] = useState<Recent[]>(loadRecent);
   const [repoUrl, setRepoUrl] = useState("");
-  const [site, setSite] = useState<SiteInfo | null>(null);
   const [scanning, setScanning] = useState<Source>("github");
   const [downloading, setDownloading] = useState(false);
   const [query, setQuery] = useState("");
@@ -772,9 +769,8 @@ export function Dashboard() {
     else window.history.pushState(null, "", url);
   }
 
-  // A website scan is report-only: there is no code to patch, so the fix steps stay shut.
   const canOpen = (s: Step) =>
-    s === "connect" || (s === "verify" ? !!patchResult : s === "fixes" ? !!report && !site : !!report);
+    s === "connect" || (s === "verify" ? !!patchResult : !!report);
 
   async function runScan(start: () => Promise<ScanResponse>, readNotes: string[], source: Source, url?: string) {
     setBusy("scan");
@@ -789,7 +785,6 @@ export function Dashboard() {
       setMock(res.mock);
       setOmitted(res.omitted);
       setDemo(source === "demo" && !res.mock);
-      setSite(res.kind === "site" && res.site ? res.site : null);
       setPatchResult(null);
       setApproved([]);
       setSummary(null);
@@ -828,17 +823,15 @@ export function Dashboard() {
       setOmitted(stored.omitted);
       setNotes([]);
       setDemo(!!stored.demo);
-      const storedSite = stored.kind === "site" && stored.site ? stored.site : null;
-      setSite(storedSite);
       setPatchResult(pr);
       setApproved(stored.patches?.filter((p) => p.approved).map((p) => p.patchId) ?? []);
       setSummary(stored.approvedSummary ?? null);
       setSelectedPatch("");
       setFilter(stored.report.results.some(isFailing) ? "failing" : "all");
       setQuery("");
-      setSourceUrl(storedSite?.url ?? recent.find((r) => r.id === id)?.url ?? "");
+      setSourceUrl(recent.find((r) => r.id === id)?.url ?? "");
       genTried.current = !!pr;
-      go(storedSite ? "findings" : target === "verify" && !pr ? "fixes" : target, id, false, true);
+      go(target === "verify" && !pr ? "fixes" : target, id, false, true);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "";
       if (/not found/i.test(msg)) {
@@ -911,10 +904,10 @@ export function Dashboard() {
     await runScan(() => uploadScan(read.name, read.files), read.notes, "upload");
   }
 
-  /** github.com/owner/repo is read as code; any other address is scanned as a live website. */
+  /** Siidekick reads source code only: a GitHub repo URL, an uploaded folder or the demo shop. */
   function scanUrl(url: string) {
     if (isGithubRepo(url)) void runScan(() => githubScan(url), [], "github", url);
-    else void runScan(() => siteScan(url), [], "site", url);
+    else setError("Siidekick scans source code, not live websites. Paste a GitHub repo address (github.com/owner/repo), upload a folder, or try the demo shop.");
   }
 
   function handleSubmit(e: FormEvent) {
@@ -941,7 +934,7 @@ export function Dashboard() {
   }
 
   useEffect(() => {
-    if (step === "fixes" && report && !site && !patchResult && !busy && !genTried.current) void handleGenerate();
+    if (step === "fixes" && report && !patchResult && !busy && !genTried.current) void handleGenerate();
   });
 
   async function approveOne(patchId: string): Promise<boolean> {
@@ -1025,11 +1018,11 @@ export function Dashboard() {
 
   function exportAs(kind: "json" | "md") {
     if (!report) return;
-    const target = site ? site.finalUrl : report.repo;
+    const target = report.repo;
     const stem = `siidekick-${target.replace(/^https?:\/\//, "").replace(/[^\w.-]+/g, "-")}`;
     if (kind === "md") saveText(`${stem}.md`, toMarkdown(report, target, summary), "text/markdown");
     else {
-      const body = { tool: "siidekick", target, site: site ?? undefined, report, approvedFixes: approved, approvedSummary: summary ?? undefined };
+      const body = { tool: "siidekick", target, report, approvedFixes: approved, approvedSummary: summary ?? undefined };
       saveText(`${stem}.json`, JSON.stringify(body, null, 2), "application/json");
     }
   }
@@ -1089,9 +1082,7 @@ export function Dashboard() {
   const aiFor = features?.ai && scanId && !mock ? { scanId, lang: aiLang } : undefined;
   const statusText =
     busy === "scan"
-      ? scanning === "site"
-        ? "Reading the site…"
-        : "Scanning the repo…"
+      ? "Scanning the repo…"
       : busy === "restore"
         ? "Loading the scan…"
         : busy === "patches"
@@ -1102,7 +1093,7 @@ export function Dashboard() {
               ? "Building the download…"
               : "";
   const stepTitle: Record<Step, string> = {
-    connect: "Scan a site or repo",
+    connect: "Scan a repo",
     findings: "Findings",
     fixes: "Review fixes",
     verify: "Verify & ship",
@@ -1146,7 +1137,7 @@ export function Dashboard() {
           )}
           {(mock || isMockSession()) && <span className="demo-badge">sample data, API offline</span>}
           <a className="back-link" href="/">
-            Back to site
+            Back to home
           </a>
         </div>
       </header>
@@ -1166,8 +1157,8 @@ export function Dashboard() {
             <Score score={report.score} />
             <dl>
               <div>
-                <dt>{site ? "Site" : "Repo"}</dt>
-                <dd className="repo-name">{site ? site.finalUrl : report.repo}</dd>
+                <dt>Repo</dt>
+                <dd className="repo-name">{report.repo}</dd>
               </div>
               <div>
                 <dt>Failing</dt>
@@ -1235,11 +1226,11 @@ export function Dashboard() {
                 {stepTitle.connect}
               </h1>
               <p className="lede">
-                Paste a website or a GitHub repo. Siidekick flags what an attacker would find first. On a site it reads the
-                headers, cookies and page; on a repo it reads the code and drafts fixes you approve one by one.
+                Paste a GitHub repo or upload your project folder. Siidekick reads the code, flags what an attacker would
+                find first, and drafts fixes you approve one by one.
               </p>
               <form className="repo-form" onSubmit={handleSubmit}>
-                <label htmlFor="repo-url">Website or GitHub repo</label>
+                <label htmlFor="repo-url">GitHub repo</label>
                 <div>
                   <input
                     id="repo-url"
@@ -1247,7 +1238,7 @@ export function Dashboard() {
                     inputMode="url"
                     autoComplete="off"
                     spellCheck={false}
-                    placeholder="example.com or github.com/owner/repo"
+                    placeholder="github.com/owner/repo"
                     value={repoUrl}
                     onChange={(e) => setRepoUrl(e.target.value)}
                     aria-describedby="repo-note"
@@ -1258,8 +1249,7 @@ export function Dashboard() {
                   </button>
                 </div>
                 <small id="repo-note">
-                  Scan only sites and repos you own or may test. A website gets one passive read of its public pages; a
-                  repo is read as text and never run.
+                  Scan only code you own or may test. A repo is read as text and never run on our server.
                 </small>
               </form>
               <div className="connect-alt">
@@ -1338,18 +1328,16 @@ export function Dashboard() {
                 <h2>What happens</h2>
                 <ol className="how-list">
                   <li>
-                    <strong>Scan.</strong> A site is fetched once, like a browser would. A repo is read as text. Nothing is
-                    installed or run.
+                    <strong>Scan.</strong> The repo is read as text. Nothing is installed or run on our server.
                   </li>
                   <li>
-                    <strong>Findings.</strong> Each failing check names the header, cookie, file or line, and why it matters.
+                    <strong>Findings.</strong> Each failing check names the file and line, and why it matters.
                   </li>
                   <li>
-                    <strong>Fixes.</strong> Sites get the exact setting to change. Repos get template patches that must pass
-                    a diff guard.
+                    <strong>Fixes.</strong> Template patches that only add code and must pass the diff guard.
                   </li>
                   <li>
-                    <strong>Ship.</strong> Copy a site fix into your host, or download only the repo patches you approved.
+                    <strong>Ship.</strong> Prove the fixes in an isolated AWS build, then download them or open a pull request.
                   </li>
                 </ol>
               </section>
@@ -1384,7 +1372,7 @@ export function Dashboard() {
               <p className="lede">
                 {failing.length === 0
                   ? `Every applicable check passes on ${report.repo}.`
-                  : `${plural(failing.length, "check")} failing on ${report.repo}, worst first. Open a row for ${site ? "what was seen and the exact fix" : "the file, line and reason"}.`}
+                  : `${plural(failing.length, "check")} failing on ${report.repo}, worst first. Open a row for the file, line and reason.`}
               </p>
             </div>
             <div className="toolbar">
@@ -1466,18 +1454,7 @@ export function Dashboard() {
                 </section>
               ))
             )}
-            {failing.length > 0 && site && (
-              <div className="step-cta">
-                <p>
-                  Website scans are report-only. Each failing row carries the exact header or setting to change: copy it
-                  into your server or host config, then scan again.
-                </p>
-                <button type="button" className="button primary" disabled={!!busy} onClick={() => scanUrl(site.url)}>
-                  Scan again
-                </button>
-              </div>
-            )}
-            {failing.length > 0 && !site && (
+            {failing.length > 0 && (
               <div className="step-cta">
                 <p>
                   <strong>{fixableFailing}</strong> of {plural(failing.length, "failing check")} {fixableFailing === 1 ? "has" : "have"} an

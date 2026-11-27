@@ -6,15 +6,15 @@ Siidekick
 
 ## One-line pitch
 
-Cybersecurity for everyone: scan any website or GitHub repo, get findings explained in your own language, approve add-only fixes, and see each fix proven in an isolated AWS build before you merge it.
+Cybersecurity for everyone: scan your GitHub repo, get findings explained in your own language, approve add-only fixes, and see each fix proven in an isolated AWS build before you merge it.
 
 ## 150-word description
 
 Attack tooling is now point-and-click, and AI-written code repeats the same mistakes. Siidekick is built for the small shops, student teams and colleges that face both without a security engineer.
 
-Paste a website address and Siidekick reads it passively, the way any browser does: TLS, headers, cookies, forms, scripts, and AI keys called from the browser. Paste a GitHub repo and it reads the code for leaked secrets, open endpoints, hallucinated packages, open Firebase or Supabase rules and unverified login tokens.
+Paste a GitHub repo (or upload a folder) and Siidekick reads the code for leaked secrets, open endpoints, vulnerable dependencies and how they get in, hallucinated packages, open Firebase or Supabase rules and unverified login tokens. Amazon Bedrock explains each finding in the owner's language.
 
-Each finding comes with an add-only patch. A diff guard refuses any patch that deletes or rewrites owner code, and nothing lands until the owner approves it. The approved fixes are rescanned, and on the demo shop Siidekick boots the app before and after and fires the same attacks at both, with a control request proving real users still get through.
+Each finding comes with an add-only patch. A diff guard refuses any patch that deletes or rewrites owner code, and nothing lands until the owner approves it. The approved fixes then run in a throwaway AWS CodeBuild container, original and fixed side by side: install, the project's own tests, and an independent npm audit. A fix is marked verified only when the tests pass and the flagged packages are gone, and Siidekick can open a pull request carrying that evidence.
 
 ## What is live
 
