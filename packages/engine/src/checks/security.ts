@@ -13,6 +13,8 @@ import { pythonSecurity } from "./python.js";
 import { supplyChain } from "./supply-chain.js";
 
 /** Group C security checks. One file per check (or family), add it here. */
+import { bharatChecks } from "./bharat.js";
+
 export const securityChecks: Check[] = [
   secretsInRepo,
   securityHeaders,
@@ -32,4 +34,6 @@ export const securityChecks: Check[] = [
   ciSecurity,
   iacSecurity,
   supplyChain,
+  // India-specific: payments, Aadhaar/PAN, OTP logins (checks/bharat.ts)
+  ...bharatChecks,
 ];

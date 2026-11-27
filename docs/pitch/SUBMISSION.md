@@ -12,7 +12,7 @@ Cybersecurity for everyone: scan your GitHub repo, get findings explained in you
 
 Attack tooling is now point-and-click, and AI-written code repeats the same mistakes. Siidekick is built for the small shops, student teams and colleges that face both without a security engineer.
 
-Paste a GitHub repo (or upload a folder) and Siidekick reads the code for leaked secrets, open endpoints, vulnerable dependencies and how they get in, hallucinated packages, open Firebase or Supabase rules and unverified login tokens. Amazon Bedrock explains each finding in the owner's language.
+Paste a GitHub repo (or upload a folder) and Siidekick reads the code for leaked secrets, open endpoints, vulnerable dependencies and how they get in, hallucinated packages, open Firebase or Supabase rules and unverified login tokens. Amazon Bedrock explains each finding in the owner's language. A Bharat Pack of India-specific checks catches unverified Razorpay and Paytm/UPI payments, Aadhaar and PAN in code or logs, and leaked OTPs, and an India lens shows which findings matter under the DPDP Act and CERT-In's 6-hour rule.
 
 Each finding comes with an add-only patch. A diff guard refuses any patch that deletes or rewrites owner code, and nothing lands until the owner approves it. The approved fixes then run in a throwaway AWS CodeBuild container, original and fixed side by side: install, the project's own tests, and an independent npm audit. A fix is marked verified only when the tests pass and the flagged packages are gone, and Siidekick can open a pull request carrying that evidence.
 

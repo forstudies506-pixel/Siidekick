@@ -29,6 +29,8 @@ _Updated 2026-11-26 (phase 8)._ Read `BRAIN.md`, `AGENTS.md`, then this.
 
 - Phase 11: **Impact visualizations** (`apps/web/src/components/Impact.tsx`): score, severity, npm audit, dependency tree before/after, change footprint, AWS timeline, build metrics, impact card PNG. Hand-drawn SVG, no chart library; Before #6b8fd6 / After #c98500 validated with the dataviz checker on the dark surface; every chart has a table view and hover/focus tooltips. `verify.sh` now records per-step times, installed package count and node_modules size per copy (`metrics` in the build result). Team credit (Schrödinger's Code, Echelon Systems Architecture) in the footer and submission.
 
+- Phase 12: **Bharat Pack + India lens.** New checks in `packages/engine/src/checks/bharat.ts` (group D-domain): `payment-verification` (Razorpay signature, Paytm/UPI callback status; template fix adds `lib/verifyRazorpaySignature.js`), `indian-pii` (Verhoeff-valid Aadhaar, PAN, identity data in logs; masked evidence), `otp-safety` (OTP in response, logged, Math.random). `secrets-in-repo` now recognises merchant key / salt / auth key names and labels Indian vendors. Demo flaws 13–16 (`lib/payments.js`, `lib/otp.js`, `lib/kyc.js`, never loaded by server.js; no real-looking Aadhaar committed). Dashboard India lens (`components/IndiaLens.tsx`, `bharat.ts`): DPDP-relevant count, CERT-In readiness, Bharat findings, DPDP row tags; playbook template gains a Report (India) section. Hindi titles for the new checks. Demo now starts at 33/100.
+
 ## Not done
 - Demo video, and the TODO(team) fields in `docs/pitch/SUBMISSION.md` (video link, team names).
 - AWS: live at https://d1ulntgja5qae0.cloudfront.net. Redeploy with `AWS_REGION=ap-southeast-2 bash scripts/deploy.sh`.

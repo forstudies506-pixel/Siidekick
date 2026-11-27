@@ -23,6 +23,10 @@ Record on the **CloudFront URL** from `scripts/deploy.sh`. Before recording:
 
 **Say:** "The app never installed qs. It came in through express. Siidekick rebuilds the dependency graph and shows exactly how it got in."
 
+**Point to:** the India lens: "11 failing checks can expose students' data, the DPDP Act's penalty for that goes up to ₹250 crore, and there's no plan for CERT-In's 6-hour report." Then open "Online payments are verified on the server".
+
+**Say:** "This is the bug we see in fest sites: the server trusts the Razorpay payment id the browser sends. Anyone can get a pass with a fake payment. No generic scanner checks this."
+
 ## 0:45–1:15 · Investigate, in your language
 
 **Click:** Set "AI explains in" to हिन्दी (or Tamil). Press "Explain simply".

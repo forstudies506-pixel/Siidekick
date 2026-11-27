@@ -27,6 +27,8 @@ import {
 } from "../api/client";
 import { AI_LANGS, AiExplain, DependencyChain, PullRequestPanel, VerifyPanel } from "../components/AwsPanels";
 import { ImpactSection, downloadImpactCard } from "../components/Impact";
+import { IndiaLens } from "../components/IndiaLens";
+import { DPDP_CHECKS } from "../bharat";
 import { checkHi, ui, type Lang } from "../i18n/hi";
 import { zipFiles } from "../zip";
 
@@ -34,7 +36,7 @@ const groupLabels: Record<CheckGroup, string> = {
   "A-delivery": "Delivery",
   "B-monitoring": "Monitoring",
   "C-security": "Security",
-  "D-domain": "Domain",
+  "D-domain": "India (Bharat Pack)",
   "E-states": "States",
   "F-ai": "AI",
   "G-enterprise": "Enterprise",
@@ -186,6 +188,11 @@ function FindingRow({
       <summary>
         <span className="finding-name" lang={hi ? "hi" : undefined}>
           {hi?.title ?? result.title}
+          {!result.passed && !result.skipped && DPDP_CHECKS.has(result.checkId) && (
+            <span className="law-tag" title="Can expose personal data or accounts: relevant to the DPDP Act's 'reasonable security safeguards'">
+              DPDP
+            </span>
+          )}
         </span>
         <span className={`severity ${result.severity}`}>{result.severity}</span>
         {state === "failed" ? (
@@ -1378,6 +1385,7 @@ export function Dashboard() {
                   : `${plural(failing.length, "check")} failing on ${report.repo}, worst first. Open a row for the file, line and reason.`}
               </p>
             </div>
+            <IndiaLens results={report.results} afterFailing={mock ? null : (summary?.failing ?? null)} />
             <div className="toolbar">
               <label className="search-box">
                 <span className="visually-hidden">Search checks</span>

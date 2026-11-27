@@ -47,6 +47,22 @@ Not used: **Amazon ECR**. The managed CodeBuild image already has Node 22, and a
 2. **The AI cannot invent facts.** Every Bedrock answer goes through an *evidence check*: any CVE or GHSA id, or any version number, that is not in the scan evidence gets the answer retried once, then rejected and labelled. This is the same idea as the diff guard, applied to text.
 3. **"Fixed" means proven.** The trust rule in `apps/api/src/verify.ts` labels a fix **verified** only when the fixed copy installs, the project's own tests pass, *and* an independent advisory source (`npm audit`, separate from the OSV.dev data the scan uses) no longer reports the flagged packages. A fix that breaks tests that passed before is flagged as a **regression**. A project with no tests is **inconclusive**, never verified.
 
+## Built for India: the Bharat Pack and the India lens
+
+Generic scanners do not know how Indian apps go wrong. Siidekick checks for the mistakes that show up in Indian student, college and small-business code:
+
+- **Payments that are never verified.** A Razorpay `razorpay_payment_id` accepted without checking `razorpay_signature`, or a Paytm/UPI callback that trusts `STATUS === "TXN_SUCCESS"` from the request. Anyone can then get a fest pass, merch or a fee receipt with a fake payment. The fix adds a constant-time HMAC helper; the check keeps failing until the route calls it.
+- **Payment and SMS keys in code,** named by vendor (Razorpay, Paytm, PhonePe, Cashfree, PayU, Instamojo, CCAvenue, MSG91, Fast2SMS, Textlocal), with the money risk explained, and moved to environment variables automatically.
+- **Aadhaar and PAN numbers** in code or test data (Aadhaar candidates must pass UIDAI's Verhoeff checksum, which keeps phone numbers and ids out), and identity data written to logs. Evidence is always masked.
+- **OTP logins** that return the OTP in the response, log it, or make it with `Math.random`.
+
+The **India lens** at the top of every scan puts findings in Indian context, with sources:
+- how many failing checks can expose personal data or accounts: relevant to the DPDP Act's "reasonable security safeguards", whose penalty goes up to ₹250 crore (DPDP Rules notified 14 November 2025);
+- whether the repo is ready for CERT-In's 6-hour incident reporting (the incident playbook Siidekick adds now has an India reporting section);
+- what the India-specific checks found.
+
+It is context for prioritising, not legal advice: whether a club or shop is covered is a legal question.
+
 ## Impact, measured
 
 The Verify & ship step ends with an **Impact** section drawn only from real data: the score before and after (from a rescan), failing checks by severity, `npm audit` counts from the CodeBuild run, the dependency tree turning from red to green, lines added and removed per fix, the AWS run's timeline, and **build metrics measured in CodeBuild** on both copies: installed packages, `node_modules` size, install time, test time. These are shown even when they get worse: the demo's express upgrade takes it from 51 to 69 installed packages and 5.7 to 6.9 MB, while vulnerable packages fall from 8 to 0. A downloadable impact card (PNG) carries the same numbers. A chart that has no data yet says so; nothing is estimated.

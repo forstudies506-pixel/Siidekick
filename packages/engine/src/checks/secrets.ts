@@ -7,7 +7,30 @@ const TEST_PATH = /(^|\/)(test|tests|__tests__)(\/|$)|\.(test|spec)\.[jt]sx?$/;
 const PLACEHOLDER = /(process\.env|your[_-]|xxx|example|changeme|placeholder|<.+>)/i;
 
 /** Generic `name = "literal"` where the name says it is a secret. Group 1 = name, 3 = value. */
-const ASSIGN = /\b([A-Za-z0-9_]*(?:api[_-]?key|secret|token|passw(?:or)?d)[A-Za-z0-9_]*)\b["']?\s*[:=]\s*(['"`])([^'"`\s]{8,})\2/gi;
+// merchant key / salt / auth key: the names Indian gateways use (Paytm MERCHANT_KEY, PhonePe SALT_KEY, PayU SALT, MSG91 AUTHKEY).
+const ASSIGN = /\b([A-Za-z0-9_]*(?:api[_-]?key|secret|token|passw(?:or)?d|merchant[_-]?key|salt(?:[_-]?key)?|auth[_-]?key)[A-Za-z0-9_]*)\b["']?\s*[:=]\s*(['"`])([^'"`\s]{8,})\2/gi;
+
+/** Indian payment and SMS providers, recognised from the variable name, so the finding says what is at stake. */
+const INDIAN_VENDORS: Array<[RegExp, string]> = [
+  [/razorpay|rzp/i, "Razorpay secret key"],
+  [/paytm/i, "Paytm merchant key"],
+  [/phonepe/i, "PhonePe salt key"],
+  [/cashfree/i, "Cashfree secret key"],
+  [/payu/i, "PayU salt"],
+  [/instamojo/i, "Instamojo key"],
+  [/ccavenue/i, "CCAvenue working key"],
+  [/msg91/i, "MSG91 auth key"],
+  [/fast2sms/i, "Fast2SMS key"],
+  [/textlocal/i, "Textlocal key"],
+];
+const PAYMENT_KIND = /Razorpay|Paytm|PhonePe|Cashfree|PayU|Instamojo|CCAvenue/;
+const SMS_KIND = /MSG91|Fast2SMS|Textlocal/;
+
+function vendorKind(name: string | undefined): string | null {
+  if (!name) return null;
+  for (const [re, kind] of INDIAN_VENDORS) if (re.test(name)) return kind;
+  return null;
+}
 /** Provider key formats. Each is specific enough to be a real credential wherever it appears. */
 export const VENDOR_SECRETS: Array<[string, RegExp]> = [
   ["AWS access key", /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g],
@@ -29,6 +52,7 @@ export const VENDOR_SECRETS: Array<[string, RegExp]> = [
   ["SendGrid API key", /\bSG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}\b/g],
   ["Mailgun API key", /\bkey-[0-9a-f]{32}\b/g],
   ["Twilio API key", /\bSK[0-9a-f]{32}\b/g],
+  ["Cashfree secret key", /\bcfsk_ma_(?:prod|test)_[A-Za-z0-9_]{20,}/g],
   ["npm token", /\bnpm_[A-Za-z0-9]{36}\b/g],
   ["PyPI token", /\bpypi-AgEIcHlwaS5vcmc[A-Za-z0-9_-]{50,}/g],
   ["Shopify access token", /\bshp(?:at|ca|pa|ss)_[a-fA-F0-9]{32}\b/g],
@@ -74,7 +98,7 @@ function findHits(files: { path: string; content: string }[]): Hit[] {
       if (PLACEHOLDER.test(m[3])) continue;
       const line = lineAt(f.content, m.index!);
       seen.add(line);
-      hits.push({ file: f.path, line, name: m[1], value: m[3], kind: "Hardcoded secret" });
+      hits.push({ file: f.path, line, name: m[1], value: m[3], kind: vendorKind(m[1]) ?? "Hardcoded secret" });
     }
     if (!isTest && ENV_FILE.test(f.path) && !ENV_EXAMPLE.test(f.path)) {
       f.content.split("\n").forEach((raw, i) => {
@@ -138,7 +162,11 @@ export const secretsInRepo: Check = {
       file: h.file,
       line: h.line,
       evidence: `${h.name ? h.name + " = " : ""}${redact(h.value)}`,
-      explanation: "Anyone who can read this repo can use this key. Move it to an environment variable and rotate it, since it is already in git history.",
+      explanation: PAYMENT_KIND.test(h.kind)
+        ? "Anyone who can read this repo can call your payment gateway as you: issue refunds, read customers' payment details and forge payment confirmations. Move it to an environment variable and rotate it in the gateway dashboard, since it is already in git history."
+        : SMS_KIND.test(h.kind)
+          ? "Anyone who can read this repo can send SMS (including OTPs) from your account and run up your bill. Move it to an environment variable and rotate it, since it is already in git history."
+          : "Anyone who can read this repo can use this key. Move it to an environment variable and rotate it, since it is already in git history.",
     }));
   },
 

@@ -956,3 +956,18 @@ kbd {
 }
 .team-credit { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
 .team-credit strong { color: var(--ink); font-weight: 600; }
+
+/* ---- India lens (DPDP, CERT-In, Bharat Pack) ---- */
+.india-lens { display: grid; gap: 14px; margin: 0 0 20px; padding: 20px; border: 1px solid var(--surface-2); border-radius: var(--radius); background: var(--surface); }
+.il-head h2 { margin: 0; font-size: 20px; }
+.il-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.il-item { display: grid; align-content: start; gap: 4px; padding: 14px 16px; border-left: 3px solid var(--line-strong); background: #ffffff05; border-radius: 0 8px 8px 0; }
+.il-item.is-bad { border-left-color: var(--red); }
+.il-item.is-ok { border-left-color: var(--green); }
+.il-big { margin: 0; font-size: 28px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.il-label { margin: 0; color: var(--ink); font-size: 14px; font-weight: 600; }
+.il-text { margin: 4px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.il-text a { color: var(--ink); }
+.il-note { margin: 0; color: var(--muted); font-size: 12px; }
+.law-tag { display: inline-block; margin-left: 8px; padding: 1px 6px; border: 1px solid var(--amber); border-radius: 4px; color: var(--amber); font-family: "JetBrains Mono", monospace; font-size: 10px; font-weight: 700; letter-spacing: .04em; vertical-align: 2px; }
+@media (max-width: 900px) { .il-grid { grid-template-columns: minmax(0, 1fr); } }

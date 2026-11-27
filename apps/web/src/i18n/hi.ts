@@ -61,6 +61,18 @@ export const checkHi: Record<string, { title: string; why: string }> = {
     title: "Error handler",
     why: "बिना error handler के crash होने पर user को stack trace दिख सकता है, जिसमें अंदर की जानकारी होती है।",
   },
+  "payment-verification": {
+    title: "Online payment की server पर जाँच",
+    why: "अगर server, Razorpay का signature या Paytm/UPI का checksum जाँचे बिना payment मान लेता है, तो कोई भी नकली payment id भेजकर मुफ़्त pass या सामान ले सकता है।",
+  },
+  "indian-pii": {
+    title: "Aadhaar, PAN और UPI data code और logs से बाहर",
+    why: "Aadhaar, PAN, UPI id या जन्मतिथि code या logs में हो तो बहुत लोग उसे देख सकते हैं। पूरा नंबर कभी log न करें, सिर्फ़ आख़िरी 4 अंक।",
+  },
+  "otp-safety": {
+    title: "OTP login में OTP गुप्त रहे",
+    why: "OTP को API response में लौटाने या log करने से कोई भी किसी और के नंबर से login कर सकता है। OTP सिर्फ़ SMS से भेजें और crypto.randomInt से बनाएँ।",
+  },
   "ui-heavy-animation": {
     title: "UI animation का भार",
     why: "बहुत भारी animation सस्ते phones पर page धीमा कर देता है। हल्का animation रखें या reduced-motion का ध्यान रखें।",
