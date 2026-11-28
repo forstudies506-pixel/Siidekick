@@ -585,3 +585,12 @@ h2 { font-weight: 650; letter-spacing: -0.02em; }
 .manual-list li:hover { background: rgba(255, 255, 255, 0.06); transform: translateY(-2px); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 24px 50px -28px rgba(0, 0, 0, 0.8); }
 .manual-list li { transition: background 0.35s var(--ease), transform 0.4s var(--spring), box-shadow 0.4s var(--ease); }
 @media (prefers-reduced-motion: reduce) { .manual-why { transition: none; } .il-item:hover { transform: none; } }
+
+/* full titles: rows wrap instead of cutting text off */
+.still-failing li { align-items: flex-start; }
+.still-failing li > span:first-child { overflow: visible; text-overflow: clip; white-space: normal; line-height: 1.35; }
+.manual-where code { white-space: normal; overflow-wrap: anywhere; }
+
+/* no text selection across the interface; fields you type in stay selectable */
+html { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+input, textarea, select, [contenteditable="true"] { -webkit-user-select: text; user-select: text; }
