@@ -79,6 +79,11 @@ Resources:
             Status: Enabled
             Prefix: jobs/
             ExpirationInDays: 7
+          # Scans too big for one DynamoDB item; same 7-day life as the table's TTL.
+          - Id: expire-scans
+            Status: Enabled
+            Prefix: scans/
+            ExpirationInDays: 7
 
   ArtifactBucketPolicy:
     Type: AWS::S3::BucketPolicy
@@ -130,7 +135,7 @@ Resources:
       Architectures:
         - arm64
       # The demo attack replay boots two copies of the shop as child processes.
-      MemorySize: 1024
+      MemorySize: 2048
       # API Gateway HTTP API stops waiting at 30 s.
       Timeout: 29
       Environment:
@@ -465,7 +470,9 @@ Resources:
                 Resource: !GetAtt ScansTable.Arn
               - Effect: Allow
                 Action: [s3:PutObject, s3:GetObject]
-                Resource: !Sub "${ArtifactBucket.Arn}/jobs/*"
+                Resource:
+                  - !Sub "${ArtifactBucket.Arn}/jobs/*"
+                  - !Sub "${ArtifactBucket.Arn}/scans/*"
               # Without ListBucket, S3 answers 403 instead of 404 for a job file that does not exist yet.
               - Effect: Allow
                 Action: s3:ListBucket

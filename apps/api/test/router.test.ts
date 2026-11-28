@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { registry, type ScanReport, type CheckResult, type RepoSnapshot } from "@siidekick/engine";
-import { cachedScanFetch, makeRouter } from "../src/router.js";
+import { cachedScanFetch, makeRouter, UPLOAD_LIMITS } from "../src/router.js";
 import { createStore } from "../src/store.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -62,8 +62,8 @@ describe("router", () => {
     expect(res.body).toMatchObject({ error: expect.any(String) });
   });
 
-  it("400 on more than 500 files", async () => {
-    const files = Array.from({ length: 501 }, (_, i) => ({ path: `f${i}.js`, content: "x" }));
+  it("400 on more files than an upload allows", async () => {
+    const files = Array.from({ length: UPLOAD_LIMITS.files + 1 }, (_, i) => ({ path: `f${i}.js`, content: "x" }));
     const res = await router.handle({ method: "POST", path: "/api/scans", body: { name: "x", files } });
     expect(res.status).toBe(400);
   });

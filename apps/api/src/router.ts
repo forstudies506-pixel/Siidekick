@@ -27,8 +27,10 @@ import { openPullRequest, prBody, PullRequestError } from "./pullRequest.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const MAX_FILES = 500;
-const MAX_BYTES = 2 * 1024 * 1024;
+// An uploaded folder arrives as one JSON body, and Lambda accepts at most 6 MB per request.
+export const UPLOAD_LIMITS = { files: 3000, totalBytes: 4.5 * 1024 * 1024 } as const;
+const MAX_FILES = UPLOAD_LIMITS.files;
+const MAX_BYTES = UPLOAD_LIMITS.totalBytes;
 
 const scanBodySchema = z.object({
   name: z.string().min(1),
@@ -83,7 +85,7 @@ function validateScanBody(body: unknown): { ok: true; repo: RepoSnapshot } | { o
     if (err) return { ok: false, error: err };
     total += Buffer.byteLength(f.content, "utf8");
   }
-  if (total > MAX_BYTES) return { ok: false, error: "total content exceeds 2 MB" };
+  if (total > MAX_BYTES) return { ok: false, error: "total content exceeds 4.5 MB; scan the GitHub repo instead (up to 10 MB)" };
   return { ok: true, repo: { name, files } };
 }
 
@@ -407,7 +409,7 @@ export function makeRouter(deps: {
         return { status: 400, body: { error: "too many lines to diff" } };
       }
     }
-    if (bytes > MAX_BYTES) return { status: 400, body: { error: "total content exceeds 2 MB" } };
+    if (bytes > MAX_BYTES) return { status: 400, body: { error: "total content exceeds 4.5 MB" } };
 
     const record = await store.get(params.id);
     if (!record) return { status: 404, body: { error: "not found" } };

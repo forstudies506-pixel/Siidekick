@@ -5,11 +5,13 @@ const OWNER_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
 const REPO_RE = /^[A-Za-z0-9._-]{1,100}$/;
 const REF_RE = /^[A-Za-z0-9._/-]{1,100}$/;
 
-const MAX_COMPRESSED = 10 * 1024 * 1024;
-const MAX_TAR = 30 * 1024 * 1024;
+const MAX_COMPRESSED = 25 * 1024 * 1024;
+const MAX_TAR = 100 * 1024 * 1024;
 const MAX_FILE_BYTES = 512 * 1024;
-const MAX_FILES = 500;
-const MAX_TOTAL_BYTES = 2 * 1024 * 1024;
+const MAX_FILES = 3000;
+const MAX_TOTAL_BYTES = 10 * 1024 * 1024;
+/** What a GitHub scan reads; past these it keeps scanning what fits and counts the rest as omitted. */
+export const GITHUB_LIMITS = { files: MAX_FILES, totalBytes: MAX_TOTAL_BYTES, fileBytes: MAX_FILE_BYTES } as const;
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", "coverage", "vendor"]);
 
 export class GithubError extends Error {}
@@ -194,7 +196,7 @@ export async function fetchGithubRepo(
   const url = `https://codeload.github.com/${owner}/${repo}/tar.gz/${ref}`;
   let res: Response;
   try {
-    res = await doFetch(url, { redirect: "error", signal: AbortSignal.timeout(10000) });
+    res = await doFetch(url, { redirect: "error", signal: AbortSignal.timeout(15000) });
   } catch {
     throw new GithubError("repo not found or not public");
   }

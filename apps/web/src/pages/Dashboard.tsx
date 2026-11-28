@@ -44,8 +44,8 @@ const groupLabels: Record<CheckGroup, string> = {
 };
 
 // Same caps as apps/api/src/router.ts, so an upload is trimmed here instead of rejected there.
-const MAX_FILES = 500;
-const MAX_TOTAL_BYTES = 2 * 1024 * 1024;
+const MAX_FILES = 3000;
+const MAX_TOTAL_BYTES = 4.5 * 1024 * 1024;
 const MAX_FILE_BYTES = 512 * 1024;
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : /(ch|sh|s|x)$/.test(word) ? "es" : "s"}`;
@@ -110,7 +110,7 @@ async function readFolder(list: FileList): Promise<FolderRead> {
   const notes: string[] = [];
   if (envSkipped) notes.push(`${plural(envSkipped, ".env file")} left on your machine, not uploaded.`);
   if (tooBig) notes.push(`${plural(tooBig, "file")} over 512 KB skipped.`);
-  if (capped) notes.push(`${plural(capped, "file")} not scanned: the limit is 500 files or 2 MB in total.`);
+  if (capped) notes.push(`${plural(capped, "file")} not scanned: an uploaded folder holds up to 3000 files or 4.5 MB. Scan the GitHub repo to read up to 10 MB.`);
   return { name, files, notes };
 }
 

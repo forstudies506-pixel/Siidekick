@@ -43,8 +43,10 @@ export interface Store {
   put(id: string, record: ScanRecord): Promise<void>;
 }
 
-// DynamoDB caps an item at 400 KB and a record carries the whole repo (up to 2 MB of text), so it is stored gzipped.
+// DynamoDB caps an item at 400 KB. A record carries the whole repo, so it is stored gzipped, and a record that is
+// still too big goes to S3 (scans/<id>.json.gz, expiring with the same 7-day lifecycle) with a pointer in DynamoDB.
 const MAX_ITEM_BYTES = 380_000;
+const MAX_S3_BYTES = 60_000_000;
 
 export class RecordTooLargeError extends Error {}
 
@@ -79,16 +81,35 @@ export function createDynamoStore(): Store {
   const doc = DynamoDBDocumentClient.from(client);
   const table = process.env.TABLE_NAME;
   if (!table) throw new Error("TABLE_NAME is required when STORAGE=dynamo");
+  const bucket = process.env.ARTIFACT_BUCKET;
+  let s3Cache: Promise<{ s3: import("@aws-sdk/client-s3").S3Client; PutObjectCommand: typeof import("@aws-sdk/client-s3").PutObjectCommand; GetObjectCommand: typeof import("@aws-sdk/client-s3").GetObjectCommand }> | undefined;
+  // Loaded on first use, so small scans never pay for the S3 client.
+  const s3Client = () =>
+    (s3Cache ??= import("@aws-sdk/client-s3").then(({ S3Client, PutObjectCommand, GetObjectCommand }) => ({ s3: new S3Client({}), PutObjectCommand, GetObjectCommand })));
   return {
     kind: "dynamo",
     async get(id: string): Promise<ScanRecord | null> {
       const out = await doc.send(new GetCommand({ TableName: table, Key: { id } }));
-      return out.Item ? (JSON.parse(gunzipSync(out.Item.blob as Uint8Array).toString("utf8")) as ScanRecord) : null;
+      if (!out.Item) return null;
+      let blob = out.Item.blob as Uint8Array | undefined;
+      if (!blob && typeof out.Item.s3Key === "string" && bucket) {
+        const { s3, GetObjectCommand } = await s3Client();
+        const obj = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: out.Item.s3Key }));
+        blob = obj.Body ? await obj.Body.transformToByteArray() : undefined;
+      }
+      return blob ? (JSON.parse(gunzipSync(blob).toString("utf8")) as ScanRecord) : null;
     },
     async put(id: string, record: ScanRecord): Promise<void> {
       const blob = gzipSync(JSON.stringify(record));
-      if (blob.length > MAX_ITEM_BYTES) throw new RecordTooLargeError("this repo is too large to store; try a smaller repo");
-      await doc.send(new PutCommand({ TableName: table, Item: { id, blob, expiresAt: ttlSeconds() } }));
+      if (blob.length <= MAX_ITEM_BYTES) {
+        await doc.send(new PutCommand({ TableName: table, Item: { id, blob, expiresAt: ttlSeconds() } }));
+        return;
+      }
+      if (!bucket || blob.length > MAX_S3_BYTES) throw new RecordTooLargeError("this repo is too large to store; try a smaller repo");
+      const s3Key = `scans/${id}.json.gz`;
+      const { s3, PutObjectCommand } = await s3Client();
+      await s3.send(new PutObjectCommand({ Bucket: bucket, Key: s3Key, Body: blob, ContentType: "application/gzip" }));
+      await doc.send(new PutCommand({ TableName: table, Item: { id, s3Key, expiresAt: ttlSeconds() } }));
     },
   };
 }

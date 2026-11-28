@@ -3,7 +3,7 @@ import { gzipSync } from "node:zlib";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseGithubUrl, fetchGithubRepo, GithubError } from "../src/github.js";
+import { parseGithubUrl, fetchGithubRepo, GithubError, GITHUB_LIMITS } from "../src/github.js";
 import { makeRouter } from "../src/router.js";
 import { createStore } from "../src/store.js";
 
@@ -147,29 +147,30 @@ describe("fetchGithubRepo", () => {
     ).rejects.toBeInstanceOf(GithubError);
   });
 
-  it("keeps the first 500 files past the cap and counts the rest", async () => {
-    const entries: Entry[] = Array.from({ length: 503 }, (_, i) => ({
+  it("keeps the first files up to the cap and counts the rest", async () => {
+    const entries: Entry[] = Array.from({ length: GITHUB_LIMITS.files + 3 }, (_, i) => ({
       name: `top/f${i}.js`,
       content: "x",
     }));
     const repo = await fetchGithubRepo("https://github.com/owner/repo", {
       fetch: fakeFetch(gzipSync(buildTar(entries))),
     });
-    expect(repo.files).toHaveLength(500);
+    expect(repo.files).toHaveLength(GITHUB_LIMITS.files);
     expect(repo.omitted).toBe(3);
-    expect(repo.files.at(-1)!.path).toBe("f499.js");
+    expect(repo.files.at(-1)!.path).toBe(`f${GITHUB_LIMITS.files - 1}.js`);
   });
 
-  it("stops keeping text at 2 MB but still takes small files that fit", async () => {
+  it("stops keeping text at the size cap but still takes small files that fit", async () => {
     const big = "y".repeat(400 * 1024);
+    const fit = Math.floor(GITHUB_LIMITS.totalBytes / big.length);
     const entries: Entry[] = [
-      ...Array.from({ length: 6 }, (_, i) => ({ name: `top/big${i}.js`, content: big })),
+      ...Array.from({ length: fit + 1 }, (_, i) => ({ name: `top/big${i}.js`, content: big })),
       { name: "top/small.js", content: "z" },
     ];
     const repo = await fetchGithubRepo("https://github.com/owner/repo", {
       fetch: fakeFetch(gzipSync(buildTar(entries))),
     });
-    expect(repo.files.map((f) => f.path)).toEqual(["big0.js", "big1.js", "big2.js", "big3.js", "big4.js", "small.js"]);
+    expect(repo.files.map((f) => f.path)).toEqual([...Array.from({ length: fit }, (_, i) => `big${i}.js`), "small.js"]);
     expect(repo.omitted).toBe(1);
   });
 });
@@ -200,7 +201,7 @@ describe("POST /api/scans/github", () => {
   });
 
   it("scans a repo past the file cap and says how many files it left out", async () => {
-    const entries = Array.from({ length: 502 }, (_, i) => ({ name: `big-main/f${i}.js`, content: "x" }));
+    const entries = Array.from({ length: GITHUB_LIMITS.files + 2 }, (_, i) => ({ name: `big-main/f${i}.js`, content: "x" }));
     await withRouter(fakeFetch(gzipSync(buildTar(entries))), async (router) => {
       const res = await router.handle({ method: "POST", path: "/api/scans/github", body: { url: "https://github.com/acme/big" } });
       expect(res).toMatchObject({ status: 201, body: { omitted: 2 } });

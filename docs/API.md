@@ -15,7 +15,7 @@ Storage (`GET /api/health` reports which one as `storage`):
 |---|---|---|
 | `GET /api/health` | none | `{ ok: true, checks, storage }` |
 | `GET /api/checks` | none | `{ repo: CheckInfo[] }`, read from the engine registry |
-| `POST /api/scans` | `{ name, files: [{ path, content }] }` | `201 { id, report }`. At most 500 files and 2 MB; paths relative POSIX, no `..`, no NUL |
+| `POST /api/scans` | `{ name, files: [{ path, content }] }` | `201 { id, report }`. At most 3000 files and 4.5 MB (one request; GitHub scans read up to 3000 files and 10 MB); paths relative POSIX, no `..`, no NUL |
 | `POST /api/scans/github` | `{ url }` (public github.com repo, ≤300 chars) | `201 { id, report, omitted? }`. `omitted` counts text files left out past the size caps |
 | `POST /api/scans/demo` | none | `201 { id, report }` for the bundled demo shop; the record is marked `demo: true` |
 | `GET /api/scans/:id` | none | `{ id, report, patches?, after?, omitted?, demo, kind?, site?, approvedSummary? }` |
