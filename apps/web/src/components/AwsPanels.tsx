@@ -64,7 +64,7 @@ export function AiExplain({ scanId, checkId, index, lang }: { scanId: string; ch
           {state.busy ? "Asking Amazon Bedrock…" : `Explain simply in ${langLabel}`}
         </button>
         {state.error && <p className="error-text">{state.error}</p>}
-        {!state.error && <small className="muted">AI explains; it never writes your code. Every answer is checked against this finding's evidence.</small>}
+
       </div>
     );
   }
@@ -212,18 +212,19 @@ export function VerifyPanel({
     <section className={`aws-panel verify-panel ${v ? `is-${v.status}` : ""}`} aria-labelledby="verify-title" aria-live="polite">
       <div className="aws-panel-head">
         <div>
-          <span className="eyebrow">AWS CodeBuild · Step Functions</span>
-          <h2 id="verify-title">Prove the fix in an isolated build</h2>
+          <h2 id="verify-title">Prove it on AWS</h2>
         </div>
         <button type="button" className="button primary" disabled={approved.length === 0 || starting || status?.state === "running"} onClick={() => void run()}>
           {approved.length === 0 ? "Approve a fix first" : starting ? "Starting…" : status?.state === "running" ? "Running…" : v ? "Run again" : "Run verification"}
         </button>
       </div>
-      <p className="muted">
-        Your original code and the fixed copy each get <code>npm install</code>, your own <code>npm test</code> and an independent <code>npm audit</code> in a
-        throwaway container. Install scripts are off and the build's AWS credentials are removed before your code runs. A fix is <strong>verified</strong> only
-        if the tests pass and the audit no longer reports the flagged packages.
-      </p>
+      <details className="quiet-more">
+        <summary>What runs</summary>
+        <p className="muted">
+          Your original and fixed code each get <code>npm install</code>, your <code>npm test</code> and an independent <code>npm audit</code> in a throwaway
+          container, with install scripts off and AWS credentials removed. Verified means the tests pass and the flagged packages are gone.
+        </p>
+      </details>
 
       {status?.state === "running" && (
         <ol className="stages">
@@ -321,23 +322,19 @@ export function PullRequestPanel({ scanId, approved }: { scanId: string; approve
   if (repo === undefined) return null;
   if (repo === null) {
     return (
-      <section className="aws-panel">
-        <h2>GitHub pull request</h2>
-        <p className="muted">Scan a public GitHub repo by URL to send the approved fixes as a pull request. For this scan, use the download above.</p>
-      </section>
+      null
     );
   }
   return (
     <section className="aws-panel pr-panel" aria-labelledby="pr-title">
-      <span className="eyebrow">GitHub</span>
-      <h2 id="pr-title">Send it as a pull request to {repo}</h2>
+      <h2 id="pr-title">Open a pull request</h2>
       {pr ? (
         <p className="pr-done">
           Opened{" "}
           <a href={pr.url} target="_blank" rel="noreferrer">
             pull request #{pr.number}
           </a>
-          . It carries the fixes, the patch log and the verification result. Nothing is merged until you approve it on GitHub.
+          . Nothing merges until you approve it.
         </p>
       ) : (
         <form className="pr-form" onSubmit={(e) => void submit(e)}>
@@ -346,8 +343,7 @@ export function PullRequestPanel({ scanId, approved }: { scanId: string; approve
             <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noreferrer">
               fine-grained token
             </a>{" "}
-            for this repo only, with <strong>Contents</strong>, <strong>Pull requests</strong> and <strong>Workflows</strong> set to read and write (Workflows because one fix adds a GitHub Actions file). It is used for this one request and never
-            stored.
+            for this repo with <strong>Contents</strong>, <strong>Pull requests</strong> and <strong>Workflows</strong> read and write. Used once, never stored.
           </p>
           <label>
             <span className="visually-hidden">GitHub token</span>

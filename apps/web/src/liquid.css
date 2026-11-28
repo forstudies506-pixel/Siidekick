@@ -387,3 +387,59 @@ body .site-header { position: sticky; top: 14px; }
 .has-refraction .proof-lens { background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)), rgba(9, 12, 21, 0.5); -webkit-backdrop-filter: url(#siidekick-lens) blur(4px) saturate(160%); backdrop-filter: url(#siidekick-lens) blur(4px) saturate(160%); }
 /* words that sit straight on the field get a soft dark halo */
 :is(.step-head, .connect-main, .hero2-copy, .sect-head) :is(h1, h2, p, .lede), .connect-alt > span, .hero2-foot { text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7), 0 2px 24px rgba(3, 4, 10, 0.9); }
+
+/* ---------- motion: one fluid language ---------- */
+:root { interpolate-size: allow-keywords; --spring: cubic-bezier(0.22, 1.2, 0.36, 1); }
+/* Step change: the page cross-fades and the current-step pill glides along the rail (View Transitions). */
+.app-shell .dashboard-header { view-transition-name: dash-header; }
+.step-rail button[aria-current="step"] { view-transition-name: step-pill; }
+::view-transition-group(step-pill) { animation-duration: 0.5s; animation-timing-function: var(--spring); }
+::view-transition-old(root) { animation: vt-out 0.22s var(--ease) both; }
+::view-transition-new(root) { animation: vt-in 0.42s var(--ease) both; }
+::view-transition-group(dash-header) { animation: none; }
+@keyframes vt-out { to { opacity: 0; transform: translateY(-6px) scale(0.995); filter: blur(4px); } }
+@keyframes vt-in { from { opacity: 0; transform: translateY(10px); filter: blur(6px); } }
+/* Content then settles in order, top to bottom, instead of all at once. */
+.connect-grid, .findings-step, .fixes-step, .verify-step { animation: none; }
+:is(.connect-main, .findings-step, .fixes-step, .verify-step, .connect-grid) > *, .viz-grid > * { animation: rise 0.6s var(--ease) both; }
+:is(.connect-main, .findings-step, .fixes-step, .verify-step, .connect-grid, .viz-grid) > :nth-child(2) { animation-delay: 0.05s; }
+:is(.connect-main, .findings-step, .fixes-step, .verify-step, .connect-grid, .viz-grid) > :nth-child(3) { animation-delay: 0.1s; }
+:is(.connect-main, .findings-step, .fixes-step, .verify-step, .connect-grid, .viz-grid) > :nth-child(4) { animation-delay: 0.15s; }
+:is(.connect-main, .findings-step, .fixes-step, .verify-step, .connect-grid, .viz-grid) > :nth-child(n + 5) { animation-delay: 0.2s; }
+.finding-list > * { animation: rise 0.5s var(--ease) both; }
+.finding-list > :nth-child(2) { animation-delay: 0.03s; } .finding-list > :nth-child(3) { animation-delay: 0.06s; } .finding-list > :nth-child(4) { animation-delay: 0.09s; } .finding-list > :nth-child(n + 5) { animation-delay: 0.12s; }
+@keyframes rise { from { opacity: 0; transform: translateY(12px); } }
+/* Disclosures open and close smoothly where the browser supports it. */
+details::details-content { block-size: 0; overflow-y: clip; opacity: 0; transition: block-size 0.4s var(--ease), opacity 0.3s var(--ease), content-visibility 0.4s allow-discrete; }
+details[open]::details-content { block-size: auto; opacity: 1; }
+details > summary { cursor: pointer; transition: color 0.2s var(--ease); }
+/* Buttons answer the press. */
+.button, .step-rail button, .chip, .seg button { transition: transform 0.25s var(--spring), background 0.25s var(--ease), color 0.25s var(--ease), box-shadow 0.25s var(--ease); }
+.button:active:not(:disabled), .step-rail button:active:not(:disabled) { transform: scale(0.97); }
+.button:hover:not(:disabled) { transform: translateY(-1px); }
+@media (prefers-reduced-motion: reduce) {
+  :is(.connect-main, .findings-step, .fixes-step, .verify-step, .connect-grid, .viz-grid, .finding-list) > * { animation: none !important; }
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+  details::details-content { transition: none; }
+}
+
+/* ---------- quieter, clearer hierarchy ---------- */
+.india-lens { padding: 22px 24px; }
+.il-title { margin: 0 0 14px; font-size: 15px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
+.il-grid { gap: 12px; }
+.il-big { font-size: 34px; }
+.il-label { margin: 2px 0 0; color: #c4cad8; font-weight: 500; }
+.il-more { display: grid; grid-template-rows: 0fr; opacity: 0; margin: 0; overflow: hidden; transition: grid-template-rows 0.4s var(--ease), opacity 0.3s var(--ease), margin 0.4s var(--ease); }
+.il-more > * { min-height: 0; }
+.india-lens:has(.il-why[open]) .il-more { grid-template-rows: 1fr; opacity: 1; margin-top: 10px; }
+.il-why { margin-top: 14px; }
+.il-why summary, .quiet-more summary, .viz-table summary { color: var(--muted); font-size: 13.5px; }
+.il-why summary:hover, .quiet-more summary:hover, .viz-table summary:hover { color: var(--ink); }
+.il-why .il-note { margin: 8px 0 0; font-size: 13px; }
+.impact-pending { color: var(--muted); margin: 0 0 16px; }
+.viz-foot { margin-top: 12px; }
+.viz-table .viz-source { margin: 8px 0; color: var(--muted); font-size: 13px; }
+.quiet-more { margin: 4px 0 12px; }
+.step-head .lede { font-size: 17px; color: var(--muted); }
+.connect-side:empty { display: none; }
+.il-more > p { margin: 0; min-height: 0; overflow: hidden; }

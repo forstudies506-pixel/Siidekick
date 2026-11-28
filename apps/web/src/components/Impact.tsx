@@ -77,19 +77,21 @@ function ChartCard({
   table?: { head: string[]; rows: Array<Array<string | number>> };
   empty?: string;
 }) {
+  if (empty) return null;
   return (
     <section className={`viz-card${wide ? " is-wide" : ""}`}>
       <div className="viz-head">
         <h3>{title}</h3>
         {headline && <p className="viz-headline">{headline}</p>}
       </div>
-      {empty ? <p className="viz-empty">{empty}</p> : children}
+      {children}
       {note && <p className="viz-note">{note}</p>}
       <div className="viz-foot">
-        <span className="viz-source">{source}</span>
-        {!empty && table && (
+        {(
           <details className="viz-table">
-            <summary>Show as table</summary>
+            <summary>How it's measured</summary>
+            <p className="viz-source">{source}</p>
+            {table && (
             <table>
               <thead>
                 <tr>
@@ -108,6 +110,7 @@ function ChartCard({
                 ))}
               </tbody>
             </table>
+            )}
           </details>
         )}
       </div>
@@ -522,7 +525,6 @@ export function ImpactSection(props: ImpactData & { onCard: () => void }) {
     <section className="impact" aria-labelledby="impact-title">
       <div className="impact-head">
         <div>
-          <span className="eyebrow">Measured, not promised</span>
           <h2 id="impact-title">Impact</h2>
         </div>
         <div className="impact-actions">
@@ -533,6 +535,7 @@ export function ImpactSection(props: ImpactData & { onCard: () => void }) {
         </div>
       </div>
 
+      {!res && <p className="impact-pending">Run the AWS verification above to add vulnerable packages, run time and build metrics.</p>}
       <div className="viz-grid">
         <ChartCard
           title="Security score"

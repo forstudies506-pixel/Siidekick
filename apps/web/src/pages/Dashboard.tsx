@@ -1,3 +1,4 @@
+import { flushSync } from "react-dom";
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type InputHTMLAttributes } from "react";
 import type { CheckGroup, CheckResult, FileEdit, GuardViolation, RepoFile, Severity } from "../../../../packages/engine/src/types";
 import {
@@ -768,7 +769,17 @@ export function Dashboard() {
 
   /** Moves to a step and mirrors it in the address bar, so reload and back keep the place. */
   function go(next: Step, id = scanId, isMock = mock, replace = false) {
-    setStep(next);
+    type Vt = { ready: Promise<unknown>; finished: Promise<unknown> };
+    const doc = document as Document & { startViewTransition?: (cb: () => void) => Vt };
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (next !== step && doc.startViewTransition && !still && document.visibilityState === "visible") {
+      const t = doc.startViewTransition(() => flushSync(() => setStep(next)));
+      // A skipped transition still applies the step; only the animation is lost.
+      t.ready.catch(() => undefined);
+      t.finished.catch(() => undefined);
+      // If the browser never paints (a hidden or throttled tab), apply the step anyway.
+      window.setTimeout(() => setStep(next), 400);
+    } else setStep(next);
     const q = new URLSearchParams();
     if (id && !isMock) q.set("scan", id);
     if (next !== "connect") q.set("step", next);
@@ -1236,8 +1247,7 @@ export function Dashboard() {
                 {stepTitle.connect}
               </h1>
               <p className="lede">
-                Paste a GitHub repo or upload your project folder. Siidekick reads the code, flags what an attacker would
-                find first, and drafts fixes you approve one by one.
+                Find what an attacker would, then approve the fixes.
               </p>
               <form className="repo-form" onSubmit={handleSubmit}>
                 <label htmlFor="repo-url">GitHub repo</label>
@@ -1259,7 +1269,7 @@ export function Dashboard() {
                   </button>
                 </div>
                 <small id="repo-note">
-                  Scan only code you own or may test. A repo is read as text and never run on our server.
+                  Only scan code you own. It's read as text, never run.
                 </small>
               </form>
               <div className="connect-alt">
@@ -1334,23 +1344,6 @@ export function Dashboard() {
                   </button>
                 </section>
               )}
-              <section className="side-card">
-                <h2>What happens</h2>
-                <ol className="how-list">
-                  <li>
-                    <strong>Scan.</strong> The repo is read as text. Nothing is installed or run on our server.
-                  </li>
-                  <li>
-                    <strong>Findings.</strong> Each failing check names the file and line, and why it matters.
-                  </li>
-                  <li>
-                    <strong>Fixes.</strong> Template patches that only add code and must pass the diff guard.
-                  </li>
-                  <li>
-                    <strong>Ship.</strong> Prove the fixes in an isolated AWS build, then download them or open a pull request.
-                  </li>
-                </ol>
-              </section>
               {recent.length > 0 && (
                 <section className="side-card">
                   <h2>Recent scans</h2>
@@ -1382,7 +1375,7 @@ export function Dashboard() {
               <p className="lede">
                 {failing.length === 0
                   ? `Every applicable check passes on ${report.repo}.`
-                  : `${plural(failing.length, "check")} failing on ${report.repo}, worst first. Open a row for the file, line and reason.`}
+                  : `${plural(failing.length, "check")} failing, worst first.`}
               </p>
             </div>
             <IndiaLens results={report.results} afterFailing={mock ? null : (summary?.failing ?? null)} />
@@ -1423,10 +1416,10 @@ export function Dashboard() {
                   हिन्दी
                 </button>
               </div>
-              {aiFor && (
-                <label className="ai-lang">
-                  <span>AI explains in</span>
-                  <select value={aiLang} onChange={(e) => setAiLang(e.target.value)}>
+              {(
+                <label className="ai-lang" title={aiFor ? undefined : "AI explanations run on the live AWS site"}>
+                  <span>More languages</span>
+                  <select value={aiLang} disabled={!aiFor} onChange={(e) => setAiLang(e.target.value)}>
                     {AI_LANGS.map((l) => (
                       <option key={l.id} value={l.id} lang={l.id}>
                         {l.native}
@@ -1437,9 +1430,6 @@ export function Dashboard() {
                 </label>
               )}
             </div>
-            <p className="keys-hint" aria-hidden="true">
-              <kbd>/</kbd> search <kbd>f</kbd> <kbd>p</kbd> <kbd>n</kbd> <kbd>a</kbd> filter <kbd>1</kbd>–<kbd>4</kbd> steps <kbd>Esc</kbd> clear
-            </p>
             </aside>
             <div className="findings-main">
             {lang === "hi" && (
@@ -1472,8 +1462,7 @@ export function Dashboard() {
             {failing.length > 0 && (
               <div className="step-cta">
                 <p>
-                  <strong>{fixableFailing}</strong> of {plural(failing.length, "failing check")} {fixableFailing === 1 ? "has" : "have"} an
-                  auto-fix template. The rest need a human.
+                  <strong>{fixableFailing}</strong> of {failing.length} can be fixed automatically.
                 </p>
                 <button type="button" className="button primary" onClick={() => go("fixes")}>
                   Review fixes
@@ -1493,8 +1482,7 @@ export function Dashboard() {
                   {stepTitle.fixes}
                 </h1>
                 <p className="lede">
-                  Each patch is drafted from a template, checked by the diff guard, and rescanned. Nothing changes until you
-                  approve it.
+                  Nothing changes until you approve it.
                 </p>
               </div>
               {patchResult && patches.length > 0 && (
@@ -1588,7 +1576,6 @@ export function Dashboard() {
             {manual.length > 0 && (
               <section className="manual-list">
                 <h2>Needs a human ({manual.length})</h2>
-                <p>No safe template exists for these. Each one says where to look.</p>
                 <ul>
                   {manual.map((r) => {
                     const first = r.findings[0];
@@ -1620,8 +1607,7 @@ export function Dashboard() {
                 <p>
                   {patches.length > 0 ? (
                     <>
-                      Approve every guard-passed fix and the projected score is <strong>{patchResult.scoreAfter}</strong>.{" "}
-                      {approved.length} of {patches.length} approved.
+                      {approved.length} of {patches.length} approved. All of them: <strong>{patchResult.scoreAfter}</strong>.
                     </>
                   ) : (
                     "Nothing to approve."
@@ -1641,7 +1627,6 @@ export function Dashboard() {
               <h1 ref={heading} tabIndex={-1}>
                 {stepTitle.verify}
               </h1>
-              <p className="lede">The repo is rescanned with only the patches you approved, so the number below is earned.</p>
             </div>
             <div className="verify-scores">
               <div>
@@ -1662,9 +1647,13 @@ export function Dashboard() {
               <div>
                 <span>Ideal</span>
                 <strong>{patchResult.scoreAfter}</strong>
-                <small>If you approve every guard-passed fix.</small>
+                <small>Every fix approved.</small>
               </div>
             </div>
+
+            {!mock && !patchResult.mock && scanId && (
+              <VerifyPanel key={`v-${scanId}`} scanId={scanId} approved={approved} features={features} onStatus={setVerifyStatus} />
+            )}
 
             {(() => {
               const impact = {
@@ -1697,7 +1686,9 @@ export function Dashboard() {
             <div className="ship-row">
               <section className="ship-card">
                 <h2>Download</h2>
-                <p>A zip of the changed files, only from approved patches, plus a patch log in .siidekick/.</p>
+                <p>
+                  Changed files from approved patches. Unzip over the repo, check <code>git diff</code>, run your tests, commit.
+                </p>
                 <button
                   type="button"
                   className="button primary"
@@ -1707,25 +1698,8 @@ export function Dashboard() {
                   {downloading ? "Building…" : approved.length === 0 ? "Approve a patch first" : "Download approved changes"}
                 </button>
               </section>
-              <section className="ship-card">
-                <h2>Apply it</h2>
-                <ol className="how-list">
-                  <li>Unzip over the repo root.</li>
-                  <li>
-                    Read <code>git diff</code>.
-                  </li>
-                  <li>Run your tests.</li>
-                  <li>Commit. The .siidekick log records what changed and why.</li>
-                </ol>
-              </section>
+              {!mock && !patchResult.mock && scanId && <PullRequestPanel key={`pr-${scanId}`} scanId={scanId} approved={approved} />}
             </div>
-
-            {!mock && !patchResult.mock && scanId && (
-              <>
-                <VerifyPanel key={`v-${scanId}`} scanId={scanId} approved={approved} features={features} onStatus={setVerifyStatus} />
-                <PullRequestPanel key={`pr-${scanId}`} scanId={scanId} approved={approved} />
-              </>
-            )}
 
             {demo && <ProofPanel key={scanId} scanId={scanId} approved={approved} mock={mock} results={results} />}
           </section>
