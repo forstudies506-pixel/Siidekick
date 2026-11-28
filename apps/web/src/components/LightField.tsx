@@ -56,7 +56,7 @@ export function LightField() {
             digitSize={1.3}
             timeScale={0.12}
             brightness={0.95}
-            glow={0.3}
+            glow={0.6}
             scanlineIntensity={0.12}
             glitchAmount={0.4}
             flickerAmount={0.25}

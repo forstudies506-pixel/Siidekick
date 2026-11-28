@@ -594,3 +594,6 @@ h2 { font-weight: 650; letter-spacing: -0.02em; }
 /* no text selection across the interface; fields you type in stay selectable */
 html { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 input, textarea, select, [contenteditable="true"] { -webkit-user-select: text; user-select: text; }
+
+/* bloom: each lit LED spills soft light around it (white here, then coloured by the gradient multiplied on top) */
+.lf-terminal .faulty-terminal-canvas { filter: drop-shadow(0 0 2.5px rgba(255, 255, 255, 0.6)); }
