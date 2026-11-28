@@ -1671,9 +1671,14 @@ export function Dashboard() {
 
             {summary && summary.failing.length > 0 && (
               <section className="still-failing">
-                <h2>Still failing after your approvals</h2>
+                <h2>Still failing after your approvals ({summary.failing.length})</h2>
                 <ul>
-                  {summary.failing.map((id) => {
+                  {[...summary.failing]
+                    .sort((x, y) => {
+                      const rank = (id: string) => ["critical", "high", "medium", "low"].indexOf(report.results.find((r) => r.checkId === id)?.severity ?? "low");
+                      return rank(x) - rank(y);
+                    })
+                    .map((id) => {
                     const r = report.results.find((x) => x.checkId === id);
                     return (
                       <li key={id}>

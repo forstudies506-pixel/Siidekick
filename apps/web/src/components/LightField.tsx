@@ -4,7 +4,7 @@ import FaultyTerminal from "./FaultyTerminal";
 /**
  * The light the glass refracts. A fixed field of saffron-to-indus LEDs (FaultyTerminal) sits behind everything; the
  * `.lens` surfaces bend it through an SVG displacement filter (Chromium supports `backdrop-filter: url()`;
- * other browsers get frosted glass). The pointer moves a specular highlight on whichever lens it is over.
+ * other browsers get frosted glass). A press sends a ring of light through the glass.
  */
 
 const GLASS = ".lens, .site-header, .dashboard-header, .scan-strip, .repo-form, .hero-form, .pane, .side-card, .india-lens, .findings-rail, .finding-list, .fix-list, .fix-detail, .manual-list, .still-failing, .ship-card, .aws-panel, .proof-panel, .viz-card, .verify-scores > div, .state-box, .empty-state, .step-cta, .check-col, .flow li, .catch, .facts";
@@ -20,22 +20,6 @@ export function LightField() {
       document.querySelector<SVGSVGElement>(".lf-defs")?.pauseAnimations();
       return () => root.classList.remove("has-refraction");
     }
-    let frame = 0;
-    let last: HTMLElement | null = null;
-    const move = (e: PointerEvent) => {
-      if (frame) return;
-      frame = requestAnimationFrame(() => {
-        frame = 0;
-        const lens = (e.target as Element | null)?.closest?.(GLASS) as HTMLElement | null;
-        if (last && last !== lens) last.style.removeProperty("--lit");
-        if (!lens) return;
-        const r = lens.getBoundingClientRect();
-        lens.style.setProperty("--mx", `${((e.clientX - r.left) / r.width) * 100}%`);
-        lens.style.setProperty("--my", `${((e.clientY - r.top) / r.height) * 100}%`);
-        lens.style.setProperty("--lit", "1");
-        last = lens;
-      });
-    };
     // A press sends a ring of light through the glass from where you touched it.
     const press = (e: PointerEvent) => {
       const glass = (e.target as Element | null)?.closest?.(GLASS) as HTMLElement | null;
@@ -50,14 +34,11 @@ export function LightField() {
     const settle = (e: AnimationEvent) => {
       if (e.animationName === "glass-ripple") (e.target as HTMLElement).classList?.remove("is-rippling");
     };
-    document.addEventListener("pointermove", move, { passive: true });
     document.addEventListener("pointerdown", press, { passive: true });
     document.addEventListener("animationend", settle);
     return () => {
       document.removeEventListener("pointerdown", press);
       document.removeEventListener("animationend", settle);
-      document.removeEventListener("pointermove", move);
-      cancelAnimationFrame(frame);
       root.classList.remove("has-refraction");
     };
   }, []);
@@ -81,7 +62,7 @@ export function LightField() {
             flickerAmount={0.25}
             noiseAmp={0.9}
             curvature={0}
-            mouseReact
+            mouseReact={false}
             mouseStrength={0.22}
             mouseGlow={0.55}
             persistence={0.6}

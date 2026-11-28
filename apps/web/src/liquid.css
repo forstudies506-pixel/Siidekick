@@ -1,7 +1,7 @@
 /* Siidekick · liquid glass. Loaded after styles.css: tokens, the three glass tiers, the light field, and the
    layout and component overrides. Concept: a lens over your code. One bold thing (the hero proof lens);
    everything else is quiet glass on a living light field. */
-@import url("https://fonts.googleapis.com/css2?family=Instrument+Sans:wdth,wght@75..100,400..700&family=JetBrains+Mono:wght@500;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=Instrument+Sans:wdth,wght@75..100,400..700&family=JetBrains+Mono:wght@500;700&display=swap");
 
 :root {
   --night: #05070d;
@@ -529,3 +529,59 @@ html .is-rippling.is-rippling::after {
   html .is-rippling.is-rippling::after { animation: none; }
   .manual-list li:hover, .side-card:hover, .ship-card:hover, .viz-card:hover { transform: none; }
 }
+
+/* ---------- no light follows the cursor ---------- */
+:is(.lens, .site-header, .dashboard-header, .scan-strip, .repo-form, .hero-form)::after, :is(.pane, .side-card, .india-lens, .findings-rail, .finding-list, .fix-list, .fix-detail, .manual-list, .still-failing, .ship-card, .aws-panel, .proof-panel, .viz-card, .verify-scores > div, .state-box, .empty-state, .step-cta, .check-col, .flow li, .catch, .facts)::after { background: none; }
+:is(.pane, .side-card, .india-lens, .findings-rail, .finding-list, .fix-list, .fix-detail, .manual-list, .still-failing, .ship-card, .aws-panel, .proof-panel, .viz-card, .verify-scores > div, .state-box, .empty-state, .step-cta, .check-col, .flow li, .catch, .facts)::before {
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.06) 32%, rgba(255, 255, 255, 0.02) 62%, rgba(255, 255, 255, 0.2));
+}
+:is(.site-header, .dashboard-header, .scan-strip, .repo-form, .hero-form, .lens)::before {
+  background:
+    conic-gradient(from var(--sweep), transparent 0deg 290deg, rgba(244, 184, 96, 0.55) 318deg, rgba(150, 140, 255, 0.5) 338deg, transparent 360deg),
+    linear-gradient(150deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.06) 32%, rgba(255, 255, 255, 0.02) 62%, rgba(255, 255, 255, 0.2));
+}
+html .is-rippling.is-rippling::after {
+  background: radial-gradient(circle at var(--rx, 50%) var(--ry, 50%), transparent calc(var(--ripple) * 560px - 34px), rgba(255, 226, 180, calc(0.2 * (1 - var(--ripple)))) calc(var(--ripple) * 560px), transparent calc(var(--ripple) * 560px + 34px));
+}
+
+/* ---------- headline type: Bricolage Grotesque, a characterful grotesque with optical sizes ---------- */
+:root { --display: "Bricolage Grotesque", "Instrument Sans", system-ui, sans-serif; }
+h1, h2, .step-head h1, .connect-main h1, .hero2 h1, .score-block strong, .verify-scores strong, .il-big, .facts strong, .viz-headline strong, .impact-head h2 {
+  font-family: var(--display); font-optical-sizing: auto; font-variation-settings: normal;
+}
+.step-head h1, .connect-main h1 { font-weight: 700; letter-spacing: -0.035em; font-size: clamp(32px, 3.4vw, 50px); line-height: 1.02; }
+.hero2 h1 { font-weight: 700; letter-spacing: -0.04em; }
+h2 { font-weight: 650; letter-spacing: -0.02em; }
+.score-block strong, .verify-scores strong { font-weight: 700; letter-spacing: -0.04em; }
+
+/* ---------- India lens: three status tiles ---------- */
+.india-lens { padding: 18px; }
+.il-title { margin: 2px 4px 14px; }
+.il-grid { gap: 10px; }
+.il-item { position: relative; border: 0; border-radius: 16px; padding: 18px 20px 18px; gap: 6px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06); transition: transform 0.35s var(--spring), box-shadow 0.35s var(--ease); }
+.il-item.is-bad { background: radial-gradient(120% 140% at 0% 0%, rgba(255, 111, 97, 0.16), rgba(255, 111, 97, 0.03) 60%, rgba(255, 255, 255, 0.02)); box-shadow: inset 0 0 0 1px rgba(255, 111, 97, 0.18); }
+.il-item.is-ok { background: radial-gradient(120% 140% at 0% 0%, rgba(70, 211, 154, 0.14), rgba(70, 211, 154, 0.03) 60%, rgba(255, 255, 255, 0.02)); box-shadow: inset 0 0 0 1px rgba(70, 211, 154, 0.16); }
+.il-item::before { content: ""; position: absolute; top: 20px; right: 20px; width: 8px; height: 8px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 4px color-mix(in oklab, currentColor 18%, transparent); }
+.il-item.is-bad::before { color: var(--risk); }
+.il-item.is-ok::before { color: var(--clean); }
+.il-big { margin: 0; font-size: 36px; font-weight: 700; line-height: 1; letter-spacing: -0.03em; color: var(--ink); }
+.il-big strong { color: var(--clean); font-weight: 700; }
+.il-label { margin: 0; color: var(--muted); font-size: 14px; }
+.il-item:hover { transform: translateY(-2px); }
+
+/* ---------- still failing: a tidy grid, not a stretched table ---------- */
+.still-failing { padding: 22px; }
+.still-failing h2 { margin: 0 0 14px; font-size: 20px; }
+.still-failing ul { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 8px; border: 0; }
+.still-failing li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 14px; border: 0; border-radius: 12px; background: rgba(255, 255, 255, 0.035); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05); font-size: 14.5px; transition: background 0.3s var(--ease); }
+.still-failing li:hover { background: rgba(255, 255, 255, 0.06); }
+.still-failing li > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.still-failing .severity { flex: none; }
+
+/* ---------- needs a human: cards open smoothly on hover ---------- */
+.manual-list ul { align-items: start; }
+.manual-why { display: block; -webkit-line-clamp: unset; max-height: calc(1.5em * 3); overflow: hidden; -webkit-mask-image: linear-gradient(180deg, #000 60%, transparent); mask-image: linear-gradient(180deg, #000 60%, transparent); transition: max-height 0.5s var(--ease), -webkit-mask-image 0.5s var(--ease); }
+.manual-list li:hover .manual-why, .manual-list li:focus-within .manual-why { max-height: 24em; -webkit-mask-image: linear-gradient(180deg, #000 100%, transparent); mask-image: linear-gradient(180deg, #000 100%, transparent); }
+.manual-list li:hover { background: rgba(255, 255, 255, 0.06); transform: translateY(-2px); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 24px 50px -28px rgba(0, 0, 0, 0.8); }
+.manual-list li { transition: background 0.35s var(--ease), transform 0.4s var(--spring), box-shadow 0.4s var(--ease); }
+@media (prefers-reduced-motion: reduce) { .manual-why { transition: none; } .il-item:hover { transform: none; } }
