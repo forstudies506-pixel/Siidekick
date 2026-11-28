@@ -98,13 +98,6 @@ const codeFixes: Array<{ title: string; file: string; diff: Diff }> = [
   },
 ];
 
-const flow = [
-  ["Scan", "Paste a GitHub repo or upload a folder. 39 checks read the code as text; nothing is run."],
-  ["Explain", "Every finding in plain words, in English, Hindi or six more Indian languages."],
-  ["Fix", "Small patches that only add lines. A guard refuses anything that deletes your code."],
-  ["Prove", "Your original and fixed code run in a throwaway AWS build: install, your tests, an independent audit."],
-  ["Ship", "Download the fixes or open a pull request that carries the evidence. You click merge."],
-];
 
 const languages = ["English", "हिन्दी", "বাংলা", "मराठी", "தமிழ்", "తెలుగు", "ગુજરાતી", "ಕನ್ನಡ"];
 
@@ -199,9 +192,7 @@ function ScanForm() {
 
 // ---------- the attack simulator: find, fix, prove, on a loop ----------
 
-const ACTS = ["Find", "Fix", "Prove"] as const;
-const ACT_TICKS = [7, 8, 9]; // ticks of 420 ms per act
-const TICK_MS = 420;
+const ACT_TICKS = [7, 8, 9]; // steps per act, advanced by scroll
 const BOARD = 14;
 const FIX_LINES = [
   'import { createHmac, timingSafeEqual } from "node:crypto";',
@@ -211,117 +202,270 @@ const FIX_LINES = [
   '  return res.status(400).json({ error: "Payment not verified" });',
 ];
 
-function AttackSim() {
-  const [ref, onScreen] = useOnScreen<HTMLDivElement>();
-  const [{ act, tick }, setPos] = useState({ act: 0, tick: 0 });
-  const [hold, setHold] = useState(false);
+const STAGES = [
+  {
+    kicker: "1 · Find",
+    title: "The attack lands.",
+    body: "A college-fest shop takes Razorpay payments. Someone forges one. The shop believes the browser and hands out a free pass.",
+  },
+  {
+    kicker: "2 · Fix",
+    title: "Siidekick writes the patch.",
+    body: "It checks the payment signature with HMAC. The patch only adds lines, and a guard refuses anything that deletes your code.",
+  },
+  {
+    kicker: "3 · Prove",
+    title: "Proven on AWS before you merge.",
+    body: "The fixed shop runs in a throwaway AWS build. The same forged request now fails, real payments still work, your tests still pass.",
+  },
+] as const;
+
+/** One act of the simulation, drawn for a given act and tick (both driven by scroll). */
+function SimVisual({ act, t }: { act: number; t: number }) {
+  const score = act === 2 ? Math.min(62, 33 + Math.max(0, t - 2) * 5) : 33;
+  return (
+    <div className="sim-stage">
+      <section className={`sim-act ${act === 0 ? "is-on" : ""}`} aria-hidden={act !== 0}>
+        <pre className="sim-req">
+          <span className={t >= 0 ? "ln is-in" : "ln"}>POST /api/pay/verify</span>
+          <span className={t >= 1 ? "ln is-in" : "ln"}>
+            {"{ "}razorpay_payment_id: <b>"pay_FAKE…"</b>, signature: <b>"forged"</b>
+            {" }"}
+          </span>
+        </pre>
+        <div className={`sim-res is-bad ${t >= 2 ? "is-in" : ""}`}>
+          <span className="sim-code">200</span>
+          <div>
+            <strong>Fest pass issued</strong>
+            <span>No money moved. The shop believed the browser.</span>
+          </div>
+        </div>
+        <ul className={`sim-leak ${t >= 4 ? "is-in" : ""}`}>
+          <li>Order marked paid</li>
+          <li>₹0 received</li>
+          <li>7 live attacks work on this shop</li>
+        </ul>
+      </section>
+
+      <section className={`sim-act ${act === 1 ? "is-on" : ""}`} aria-hidden={act !== 1}>
+        <div className="sim-diff">
+          <div className="sim-file">routes/pay.js</div>
+          {FIX_LINES.map((l, i) => (
+            <code key={l} className={`d-plus ${t >= i + 1 ? "is-in" : ""}`}>
+              <span aria-hidden="true">+</span>
+              {l}
+            </code>
+          ))}
+        </div>
+        <div className={`sim-chips ${t >= 6 ? "is-in" : ""}`}>
+          <span className="chip-ok">Diff guard: 0 of your lines deleted</span>
+          <span className="chip-ok">Rescanned</span>
+        </div>
+      </section>
+
+      <section className={`sim-act ${act === 2 ? "is-on" : ""}`} aria-hidden={act !== 2}>
+        <div className={`sim-res is-good ${t >= 1 ? "is-in" : ""}`}>
+          <span className="sim-code">400</span>
+          <div>
+            <strong>Payment not accepted</strong>
+            <span>A real, signed payment still goes through.</span>
+          </div>
+        </div>
+        <div className="sim-proof">
+          <div className="sim-gauge" aria-label={`Security score ${score} out of 100`}>
+            <svg viewBox="0 0 120 120" aria-hidden="true">
+              <circle cx="60" cy="60" r="50" className="g-track" />
+              <circle cx="60" cy="60" r="50" className="g-fill" style={{ strokeDashoffset: 314 - (314 * score) / 100 }} />
+            </svg>
+            <strong>{score}</strong>
+            <span>score</span>
+          </div>
+          <div className={`sim-verified ${t >= 6 ? "is-in" : ""}`}>
+            <strong>Verified on AWS in 74 s</strong>
+            <span>Your tests pass · npm audit 8 → 0</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/**
+ * The opening: the title sits centred; scrolling morphs it into a large glass pane whose story advances with the
+ * scroll (find, fix, prove). One scroll listener writes a few CSS variables per frame; React only re-renders when
+ * the act or step changes.
+ */
+function StoryHero() {
+  const ref = useRef<HTMLElement>(null);
+  const [pos, setPos] = useState({ act: -1, t: 0 });
   const reduce = still();
 
   useEffect(() => {
-    if (reduce || !onScreen || hold) return;
-    const id = window.setInterval(() => {
-      setPos((p) => (p.tick + 1 < ACT_TICKS[p.act] ? { act: p.act, tick: p.tick + 1 } : { act: (p.act + 1) % ACTS.length, tick: 0 }));
-    }, TICK_MS);
-    return () => window.clearInterval(id);
-  }, [onScreen, hold, reduce]);
+    const el = ref.current;
+    if (!el) return;
+    if (reduce) {
+      el.style.setProperty("--m", "1");
+      el.style.setProperty("--r", "1");
+      setPos({ act: 2, t: 99 });
+      return;
+    }
+    let frame = 0;
+    let last = "";
+    const update = () => {
+      frame = 0;
+      const r = el.getBoundingClientRect();
+      const total = Math.max(1, r.height - window.innerHeight);
+      const p = Math.min(1, Math.max(0, -r.top / total));
+      const m = Math.min(1, Math.max(0, (p - 0.04) / 0.18));
+      const rail = Math.min(1, Math.max(0, (p - 0.26) / 0.62));
+      el.style.setProperty("--m", m.toFixed(4));
+      el.style.setProperty("--r", rail.toFixed(4));
+      let act = -1;
+      let t = 0;
+      if (p >= 0.24) {
+        const span = 0.22;
+        act = Math.min(2, Math.floor((p - 0.24) / span));
+        const local = Math.min(1, (p - 0.24 - act * span) / (span * 0.8));
+        t = Math.floor(local * ACT_TICKS[act]);
+      }
+      const key = `${act}:${t}`;
+      if (key !== last) {
+        last = key;
+        setPos({ act, t });
+      }
+    };
+    // Scroll events already arrive once per rendered frame, so update straight away: no extra frame of lag.
+    const onScroll = () => update();
+    update();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+      cancelAnimationFrame(frame);
+    };
+  }, [reduce]);
 
-  const t = reduce ? 99 : tick;
-  const pick = (i: number) => {
-    setPos({ act: i, tick: reduce ? 0 : ACT_TICKS[i] - 1 });
-    setHold(true);
-    window.setTimeout(() => setHold(false), 5000);
-  };
-  const progress = reduce ? 1 : Math.min(1, (tick + 1) / ACT_TICKS[act]);
-  const red = act === 0 ? Math.min(BOARD, Math.max(0, (t - 2) * 3)) : act === 1 ? BOARD : Math.max(0, BOARD - Math.max(0, t - 2) * 3);
-  const score = act === 2 ? Math.min(62, 33 + Math.max(0, t - 2) * 5) : 33;
+  const act = Math.max(0, pos.act);
+  const red = pos.act < 0 ? 0 : pos.act === 0 ? Math.min(BOARD, Math.max(0, (pos.t - 2) * 3)) : pos.act === 1 ? BOARD : Math.max(0, BOARD - Math.max(0, pos.t - 2) * 3);
 
   return (
-    <div ref={ref} className="lens lx-sim" aria-label="Simulated attack on a demo shop, then the fix">
-      <div className="sim-tabs" role="tablist" aria-label="Attack, fix, proof">
-        {ACTS.map((name, i) => (
-          <button key={name} type="button" role="tab" aria-selected={act === i} onClick={() => pick(i)}>
-            <span className="sim-n">{i + 1}</span>
-            {name}
-            <span className="sim-bar" style={{ transform: `scaleX(${act === i ? progress : act > i ? 1 : 0})` }} />
-          </button>
-        ))}
-      </div>
+    <section ref={ref} className="story" aria-labelledby="hero-title">
+      <div className="story-sticky">
+        <div className="story-intro">
+          <h1 id="hero-title">Catch the breach before it ships.</h1>
+          <p className="lx-sub">Making Cybersecurity accessible to all.</p>
+          <ScanForm />
+          <div className="hero2-foot">
+            <a href="/app?demo=1">No repo handy? Try the demo shop</a>
+            <span>Read as text, never run on our server. No login.</span>
+          </div>
+        </div>
 
-      <div className="sim-stage">
-        {/* act 1: the attack lands */}
-        <section className={`sim-act ${act === 0 ? "is-on" : ""}`} aria-hidden={act !== 0}>
-          <p className="sim-caption">A college-fest shop. Someone sends a forged Razorpay payment.</p>
-          <pre className="sim-req">
-            <span className={t >= 0 ? "ln is-in" : "ln"}>POST /api/pay/verify</span>
-            <span className={t >= 1 ? "ln is-in" : "ln"}>
-              {"{ "}razorpay_payment_id: <b>"pay_FAKE…"</b>, signature: <b>"forged"</b>
-              {" }"}
+        <div className="story-pane" aria-label="Simulated attack on a demo shop, then the fix">
+          <ol className="sp-rail" aria-hidden="true">
+            <span className="sp-line">
+              <span />
             </span>
-          </pre>
-          <div className={`sim-res is-bad ${t >= 2 ? "is-in" : ""}`}>
-            <span className="sim-code">200</span>
-            <div>
-              <strong>Fest pass issued</strong>
-              <span>No money moved. The shop believed the browser.</span>
-            </div>
-          </div>
-          <ul className={`sim-leak ${t >= 4 ? "is-in" : ""}`}>
-            <li>Order marked paid</li>
-            <li>₹0 received</li>
-            <li>7 live attacks work on this shop</li>
-          </ul>
-        </section>
-
-        {/* act 2: the fix */}
-        <section className={`sim-act ${act === 1 ? "is-on" : ""}`} aria-hidden={act !== 1}>
-          <p className="sim-caption">Siidekick drafts a patch that only adds lines.</p>
-          <div className="sim-diff">
-            <div className="sim-file">routes/pay.js</div>
-            {FIX_LINES.map((l, i) => (
-              <code key={l} className={`d-plus ${t >= i + 1 ? "is-in" : ""}`}>
-                <span aria-hidden="true">+</span>
-                {l}
-              </code>
+            {STAGES.map((st, i) => (
+              <li key={st.kicker} className={pos.act >= i ? "is-on" : ""}>
+                <span className="sp-node">{i + 1}</span>
+                {st.kicker.split(" · ")[1]}
+              </li>
             ))}
+          </ol>
+          <div className="sp-body">
+            <div className="sp-copy">
+              {STAGES.map((st, i) => (
+                <div key={st.kicker} className={`sp-text ${act === i ? "is-on" : ""}`} aria-hidden={act !== i}>
+                  <p className="sp-kicker">{st.kicker}</p>
+                  <h2>{st.title}</h2>
+                  <p>{st.body}</p>
+                </div>
+              ))}
+            </div>
+            <div className="sp-visual">
+              <SimVisual act={act} t={pos.act < 0 ? -1 : pos.t} />
+            </div>
           </div>
-          <div className={`sim-chips ${t >= 6 ? "is-in" : ""}`}>
-            <span className="chip-ok">Diff guard: 0 of your lines deleted</span>
-            <span className="chip-ok">Rescanned</span>
+          <div className="sim-board" aria-hidden="true">
+            {Array.from({ length: BOARD }, (_, i) => (
+              <span key={i} className={i < red ? "is-red" : pos.act === 2 || (pos.act === 0 && pos.t < 2) ? "is-green" : ""} style={{ ["--i" as string]: i }} />
+            ))}
+            <small>{pos.act === 2 ? "checks turning green" : pos.act >= 0 && red > 0 ? "checks failing" : "39 checks"}</small>
           </div>
-        </section>
+        </div>
 
-        {/* act 3: the proof */}
-        <section className={`sim-act ${act === 2 ? "is-on" : ""}`} aria-hidden={act !== 2}>
-          <p className="sim-caption">The same forged request, replayed against the fixed shop on AWS.</p>
-          <div className={`sim-res is-good ${t >= 1 ? "is-in" : ""}`}>
-            <span className="sim-code">400</span>
-            <div>
-              <strong>Payment not accepted</strong>
-              <span>A real, signed payment still goes through.</span>
-            </div>
-          </div>
-          <div className="sim-proof">
-            <div className="sim-gauge" aria-label={`Security score ${score} out of 100`}>
-              <svg viewBox="0 0 120 120" aria-hidden="true">
-                <circle cx="60" cy="60" r="50" className="g-track" />
-                <circle cx="60" cy="60" r="50" className="g-fill" style={{ strokeDashoffset: 314 - (314 * score) / 100 }} />
-              </svg>
-              <strong>{score}</strong>
-              <span>score</span>
-            </div>
-            <div className={`sim-verified ${t >= 6 ? "is-in" : ""}`}>
-              <strong>Verified on AWS in 74 s</strong>
-              <span>Your tests pass · npm audit 8 → 0</span>
-            </div>
-          </div>
-        </section>
+        <p className="story-hint" aria-hidden="true">
+          Scroll to watch an attack get caught
+        </p>
       </div>
+    </section>
+  );
+}
 
-      <div className="sim-board" aria-hidden="true">
-        {Array.from({ length: BOARD }, (_, i) => (
-          <span key={i} className={i < red ? "is-red" : act === 2 || (act === 0 && t < 2) ? "is-green" : ""} style={{ ["--i" as string]: i }} />
-        ))}
-        <small>{act === 2 ? "checks turning green" : act === 0 && t >= 2 ? "checks failing" : "39 checks"}</small>
+// ---------- bugs flow into Siidekick and come out fixed: connected lines drawn on scroll ----------
+
+const PIPE_BUGS = [
+  { name: "Forged Razorpay payment", out: "Auto-fixed" },
+  { name: "UPI callback trusted", out: "Auto-fixed" },
+  { name: "OTP in the API response", out: "Auto-fixed" },
+  { name: "Secret key in the repo", out: "Auto-fixed" },
+  { name: "Login token never verified", out: "Auto-fixed" },
+  { name: "SQL built from user input", out: "Explained, you decide" },
+] as const;
+
+function Pipeline() {
+  const [ref, seen] = useInView<HTMLDivElement>(0.3);
+  const svg = useRef<SVGSVGElement>(null);
+  const [onRef, on] = useOnScreen<HTMLDivElement>();
+  useEffect(() => {
+    const s = svg.current;
+    if (!s) return;
+    if (on && !still()) s.unpauseAnimations();
+    else s.pauseAnimations();
+  }, [on]);
+  const ys = PIPE_BUGS.map((_, i) => 60 + i * 80);
+  return (
+    <div ref={onRef}>
+      <div ref={ref} className={`lx-pipe ${seen ? "is-seen" : ""}`}>
+        <svg ref={svg} viewBox="0 0 1200 520" role="img" aria-label="Six bugs flow into Siidekick: five come out auto-fixed, one explained for you to decide; all are verified on AWS.">
+          {ys.map((y, i) => (
+            <path key={`in-${i}`} id={`pipe-in-${i}`} className="pipe-line" style={{ ["--d" as string]: `${i * 120}ms` }} pathLength={1} d={`M 330 ${y} C 470 ${y}, 470 260, 560 260`} />
+          ))}
+          <path id="pipe-out" className="pipe-line pipe-out" style={{ ["--d" as string]: "900ms" }} pathLength={1} d="M 700 260 C 800 260, 820 260, 900 260" />
+          {ys.map((_, i) => (
+            <circle key={`dot-${i}`} r="4" className="pipe-dot">
+              <animateMotion dur="2.6s" begin={`${i * 0.35}s`} repeatCount="indefinite">
+                <mpath href={`#pipe-in-${i}`} />
+              </animateMotion>
+            </circle>
+          ))}
+          <circle r="5" className="pipe-dot is-out">
+            <animateMotion dur="1.4s" repeatCount="indefinite">
+              <mpath href="#pipe-out" />
+            </animateMotion>
+          </circle>
+        </svg>
+        <ul className="pipe-bugs">
+          {PIPE_BUGS.map((b, i) => (
+            <li key={b.name} style={{ top: `${(ys[i] / 520) * 100}%`, ["--d" as string]: `${i * 120 + 700}ms` }}>
+              <span className={`pipe-state ${b.out === "Auto-fixed" ? "is-fixed" : "is-human"}`} aria-hidden="true" />
+              <span>
+                {b.name}
+                <small>{b.out}</small>
+              </span>
+            </li>
+          ))}
+        </ul>
+        <div className="pipe-core">
+          <strong>Siidekick</strong>
+          <span>39 checks · diff guard · rescan</span>
+        </div>
+        <div className="pipe-end">
+          <strong>Verified on AWS</strong>
+          <span>tests pass · audit clean · 74 s</span>
+        </div>
       </div>
     </div>
   );
@@ -485,22 +629,7 @@ export function Landing() {
     <>
       <SiteHeader />
       <main className="landing lx">
-        <section className="lx-hero" aria-labelledby="hero-title">
-          <div className="lx-hero-copy">
-            <h1 id="hero-title">Catch the breach before it ships.</h1>
-            <p className="lx-sub">Making Cybersecurity accessible to all.</p>
-            <p className="lx-pitch">
-              Siidekick reads your repo, explains every risk in your language, writes the fix, and proves it on AWS before you
-              merge. Built for the students, colleges and small businesses that ship without a security team.
-            </p>
-            <ScanForm />
-            <div className="hero2-foot">
-              <a href="/app?demo=1">No repo handy? Try the demo shop</a>
-              <span>Read as text, never run on our server. No login.</span>
-            </div>
-          </div>
-          <AttackSim />
-        </section>
+        <StoryHero />
 
         <Reveal className="sect" aria-labelledby="impact-title">
           <div className="lx-head">
@@ -508,6 +637,14 @@ export function Landing() {
             <p>Measured on the live AWS deployment against the demo shop. Nothing here is estimated.</p>
           </div>
           <ImpactGraphs />
+        </Reveal>
+
+        <Reveal className="sect" aria-labelledby="pipe-title">
+          <div className="lx-head">
+            <h2 id="pipe-title">Every bug, traced to its fix</h2>
+            <p>What came out of the demo shop's scan: each problem flows through the checks and the diff guard, and leaves fixed or explained.</p>
+          </div>
+          <Pipeline />
         </Reveal>
 
         <Reveal className="sect lx-bharat" aria-labelledby="bharat-title">
@@ -562,23 +699,6 @@ export function Landing() {
               <FixCard key={f.title} fix={f} i={i} />
             ))}
           </div>
-        </Reveal>
-
-        <Reveal className="sect" id="how" aria-labelledby="how-title">
-          <div className="lx-head">
-            <h2 id="how-title">From a repo to a proven fix</h2>
-          </div>
-          <ol className="lx-flow">
-            {flow.map(([name, body], i) => (
-              <li key={name} style={{ ["--d" as string]: `${i * 90}ms` }}>
-                <span className="flow-n" aria-hidden="true">
-                  {i + 1}
-                </span>
-                <h3>{name}</h3>
-                <p>{body}</p>
-              </li>
-            ))}
-          </ol>
         </Reveal>
 
         <Reveal className="sect checks" id="checks" aria-labelledby="checks-title">
