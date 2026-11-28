@@ -47,12 +47,12 @@ export function LightField() {
         <div className="lf-terminal">
           <FaultyTerminal
             tint="#ffffff"
-            scale={1.7}
+            scale={2.3}
             gridMul={[2, 1]}
             digitSize={1.3}
             timeScale={0.12}
-            brightness={1.1}
-            glow={0.45}
+            brightness={0.95}
+            glow={0.3}
             scanlineIntensity={0.12}
             glitchAmount={0.4}
             flickerAmount={0.25}

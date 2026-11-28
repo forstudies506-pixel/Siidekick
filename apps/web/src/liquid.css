@@ -376,3 +376,14 @@ body .site-header { position: sticky; top: 14px; }
 .hero2 > *, .catch-grid > *, .sect-head > *, .connect-grid > *, .findings-layout > * { min-width: 0; }
 .pl-request { white-space: pre-wrap; }
 @media (max-width: 520px) { .proof-lens { padding: 20px; } .pl-row .pl-code { font-size: 24px; } }
+
+/* ---------- readability: the LED field stays behind the glass, never in front of the words ---------- */
+.lf-terminal { opacity: 0.65; }
+.light-field::after { content: ""; position: absolute; inset: 0; z-index: 2; pointer-events: none; background: radial-gradient(90% 70% at 50% 40%, rgba(3, 4, 10, 0.5), rgba(3, 4, 10, 0.25) 75%); }
+/* glass is tinted dark enough that text on it always reads; the rim still bends the light */
+:is(.lens, .site-header, .dashboard-header, .scan-strip, .repo-form, .hero-form) { background: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02)), rgba(9, 12, 21, 0.62); }
+:is(.pane, .side-card, .india-lens, .findings-rail, .finding-list, .fix-list, .fix-detail, .manual-list, .still-failing, .ship-card, .aws-panel, .proof-panel, .viz-card, .verify-scores > div, .state-box, .empty-state, .step-cta, .check-col, .flow li, .catch, .facts) { background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015)), rgba(9, 12, 21, 0.74); -webkit-backdrop-filter: blur(30px) saturate(130%); backdrop-filter: blur(30px) saturate(130%); }
+.has-refraction :is(.lens, .site-header, .dashboard-header, .scan-strip, .repo-form, .hero-form) { -webkit-backdrop-filter: url(#siidekick-lens) blur(16px) saturate(150%); backdrop-filter: url(#siidekick-lens) blur(16px) saturate(150%); }
+.has-refraction .proof-lens { background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)), rgba(9, 12, 21, 0.5); -webkit-backdrop-filter: url(#siidekick-lens) blur(4px) saturate(160%); backdrop-filter: url(#siidekick-lens) blur(4px) saturate(160%); }
+/* words that sit straight on the field get a soft dark halo */
+:is(.step-head, .connect-main, .hero2-copy, .sect-head) :is(h1, h2, p, .lede), .connect-alt > span, .hero2-foot { text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7), 0 2px 24px rgba(3, 4, 10, 0.9); }
