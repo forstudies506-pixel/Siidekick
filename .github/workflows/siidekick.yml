@@ -1,0 +1,25 @@
+name: Siidekick
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least privilege: the token can read the repo and nothing else.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ">=20"
+      - run: npm ci --ignore-scripts
+      - run: npm test --if-present
+      - run: npm audit --audit-level=high || true
+      # Siidekick on every push and pull request: findings as annotations and a job summary.
+      - uses: forstudies506-pixel/Siidekick/action@aa6c854d031959aaddd4fcafee675f036372d5bd
