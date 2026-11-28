@@ -7,6 +7,8 @@ import FaultyTerminal from "./FaultyTerminal";
  * other browsers get frosted glass). The pointer moves a specular highlight on whichever lens it is over.
  */
 
+const GLASS = ".lens, .site-header, .dashboard-header, .scan-strip, .repo-form, .hero-form, .pane, .side-card, .india-lens, .findings-rail, .finding-list, .fix-list, .fix-detail, .manual-list, .still-failing, .ship-card, .aws-panel, .proof-panel, .viz-card, .verify-scores > div, .state-box, .empty-state, .step-cta, .check-col, .flow li, .catch, .facts";
+
 export function LightField() {
   useEffect(() => {
     const ua = navigator as Navigator & { userAgentData?: { brands?: { brand: string }[] } };
@@ -14,14 +16,17 @@ export function LightField() {
     const root = document.documentElement;
     if (chromium) root.classList.add("has-refraction");
     const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (still) return () => root.classList.remove("has-refraction");
+    if (still) {
+      document.querySelector<SVGSVGElement>(".lf-defs")?.pauseAnimations();
+      return () => root.classList.remove("has-refraction");
+    }
     let frame = 0;
     let last: HTMLElement | null = null;
     const move = (e: PointerEvent) => {
       if (frame) return;
       frame = requestAnimationFrame(() => {
         frame = 0;
-        const lens = (e.target as Element | null)?.closest?.(".lens, .site-header, .dashboard-header, .scan-strip, .repo-form, .hero-form, .pane, .side-card, .india-lens, .findings-rail, .finding-list, .fix-list, .fix-detail, .manual-list, .still-failing, .ship-card, .aws-panel, .proof-panel, .viz-card, .verify-scores > div, .state-box, .empty-state, .step-cta, .check-col, .flow li, .catch, .facts") as HTMLElement | null;
+        const lens = (e.target as Element | null)?.closest?.(GLASS) as HTMLElement | null;
         if (last && last !== lens) last.style.removeProperty("--lit");
         if (!lens) return;
         const r = lens.getBoundingClientRect();
@@ -31,8 +36,26 @@ export function LightField() {
         last = lens;
       });
     };
+    // A press sends a ring of light through the glass from where you touched it.
+    const press = (e: PointerEvent) => {
+      const glass = (e.target as Element | null)?.closest?.(GLASS) as HTMLElement | null;
+      if (!glass) return;
+      const r = glass.getBoundingClientRect();
+      glass.style.setProperty("--rx", `${e.clientX - r.left}px`);
+      glass.style.setProperty("--ry", `${e.clientY - r.top}px`);
+      glass.classList.remove("is-rippling");
+      void glass.offsetWidth;
+      glass.classList.add("is-rippling");
+    };
+    const settle = (e: AnimationEvent) => {
+      if (e.animationName === "glass-ripple") (e.target as HTMLElement).classList?.remove("is-rippling");
+    };
     document.addEventListener("pointermove", move, { passive: true });
+    document.addEventListener("pointerdown", press, { passive: true });
+    document.addEventListener("animationend", settle);
     return () => {
+      document.removeEventListener("pointerdown", press);
+      document.removeEventListener("animationend", settle);
       document.removeEventListener("pointermove", move);
       cancelAnimationFrame(frame);
       root.classList.remove("has-refraction");
@@ -59,8 +82,8 @@ export function LightField() {
             noiseAmp={0.9}
             curvature={0}
             mouseReact
-            mouseStrength={0.12}
-            mouseGlow={0.35}
+            mouseStrength={0.22}
+            mouseGlow={0.55}
             persistence={0.6}
             vignette={0.6}
             clickEffect="none"
@@ -85,7 +108,9 @@ export function LightField() {
           <feColorMatrix in="slopeX" type="matrix" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0 1" result="mapX" />
           <feColorMatrix in="slopeY" type="matrix" values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 0 1" result="mapY" />
           <feComposite in="mapX" in2="mapY" operator="arithmetic" k1="0" k2="1" k3="1" k4="0" result="lensMap" />
-          <feTurbulence type="fractalNoise" baseFrequency="0.0035 0.008" numOctaves="1" seed="11" result="flow" />
+          <feTurbulence type="fractalNoise" baseFrequency="0.0035 0.008" numOctaves="1" seed="11" result="flow">
+            <animate attributeName="baseFrequency" dur="22s" values="0.0035 0.008;0.0048 0.0062;0.003 0.0074;0.0035 0.008" repeatCount="indefinite" />
+          </feTurbulence>
           <feGaussianBlur in="flow" stdDeviation="6" result="soft" />
           <feComposite in="lensMap" in2="soft" operator="arithmetic" k1="0" k2="1" k3="0.3" k4="-0.15" result="map" />
           <feDisplacementMap in="SourceGraphic" in2="map" scale="56" xChannelSelector="R" yChannelSelector="G" result="dR" />

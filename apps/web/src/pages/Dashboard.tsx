@@ -1348,7 +1348,7 @@ export function Dashboard() {
                 <section className="side-card">
                   <h2>Recent scans</h2>
                   <ul className="recent-list">
-                    {recent.map((r) => (
+                    {recent.slice(0, 3).map((r) => (
                       <li key={r.id}>
                         <button type="button" disabled={!!busy} onClick={() => void restore(r.id, "findings")}>
                           <span className="recent-repo">{r.repo}</span>
@@ -1589,15 +1589,15 @@ export function Dashboard() {
                           <span className={`severity ${r.severity}`}>{r.severity}</span>
                         </div>
                         {first && (
-                          <>
-                            <code className="finding-loc">
-                              {first.file || "repository"}
+                          <p className="manual-where">
+                            <code title={`${first.file || "repository"}${first.line ? `:${first.line}` : ""}`}>
+                              {(first.file || "repository").split("/").slice(-2).join("/")}
                               {first.line ? `:${first.line}` : ""}
                             </code>
-                            <p>{first.explanation}</p>
-                          </>
+                            {r.findings.length > 1 && <span>+{r.findings.length - 1} more</span>}
+                          </p>
                         )}
-                        {r.findings.length > 1 && <small>and {plural(r.findings.length - 1, "more place")}</small>}
+                        {first && <p className="manual-why">{first.explanation}</p>}
                       </li>
                     );
                   })}
