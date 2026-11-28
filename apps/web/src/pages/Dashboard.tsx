@@ -174,10 +174,12 @@ function FindingRow({
   lang,
   hasFix,
   ai,
+  showSeverity = true,
 }: {
   result: CheckResult;
   lang: Lang;
   hasFix: boolean;
+  showSeverity?: boolean;
   /** Set when Amazon Bedrock is available: the scan and the language to explain in. */
   ai?: { scanId: string; lang: string };
 }) {
@@ -187,6 +189,7 @@ function FindingRow({
   return (
     <details className={`finding-row is-${state}`}>
       <summary>
+        <span className={`row-dot is-${state === "failed" ? result.severity : state}`} aria-hidden="true" />
         <span className="finding-name" lang={hi ? "hi" : undefined}>
           {hi?.title ?? result.title}
           {!result.passed && !result.skipped && DPDP_CHECKS.has(result.checkId) && (
@@ -195,14 +198,15 @@ function FindingRow({
             </span>
           )}
         </span>
-        <span className={`severity ${result.severity}`}>{result.severity}</span>
-        {state === "failed" ? (
-          <span className={`fix-badge ${hasFix ? "auto" : "manual"}`}>{hasFix ? "auto-fix" : "manual"}</span>
-        ) : (
-          <span aria-hidden="true" />
-        )}
-        <span className={`verdict ${state === "na" ? "na" : result.passed ? "pass" : "fail"}`} lang={lang}>
-          {state === "na" ? "N/A" : result.passed ? t.pass : t.fail}
+        <span className="row-tags">
+          {showSeverity && <span className={`severity ${result.severity}`}>{result.severity}</span>}
+          {state === "failed" && hasFix && <span className="fix-badge auto">Auto-fix</span>}
+          {state !== "failed" && (
+            <span className={`verdict ${state === "na" ? "na" : "pass"}`} lang={lang}>
+              {state === "na" ? "N/A" : t.pass}
+            </span>
+          )}
+          {state === "failed" && <span className="visually-hidden">{`${result.severity}, ${t.fail}`}</span>}
         </span>
       </summary>
       <div className="finding-content">
@@ -1173,63 +1177,78 @@ export function Dashboard() {
       )}
 
       <main className="dashboard">
-        {report && step !== "connect" && (
-          <section className="scan-strip" aria-label="Current scan">
-            <Score score={report.score} />
-            <dl>
-              <div>
-                <dt>Repo</dt>
-                <dd className="repo-name">{report.repo}</dd>
+        {report && step !== "connect" && (() => {
+          const after = mock ? null : summary;
+          const stillFailing = after ? new Set(after.failing) : null;
+          const board = [...failing].sort(bySeverity).concat(passedList, naList);
+          return (
+            <section className="lens summary-lens" aria-label="Current scan">
+              <div className="sl-score">
+                <Score score={report.score} />
+                {after && after.score !== report.score && (
+                  <p className="sl-after" aria-label={`${after.score} with your approved fixes`}>
+                    → <strong>{after.score}</strong>
+                  </p>
+                )}
               </div>
-              <div>
-                <dt>Failing</dt>
-                <dd className="sev-counts">
-                  {failing.length === 0
-                    ? "none"
-                    : SEVERITIES.filter((s) => failCount(s) > 0).map((s) => (
-                        <span key={s} className={`severity ${s}`}>
-                          {failCount(s)} {s}
-                        </span>
-                      ))}
-                </dd>
-              </div>
-              <div>
-                <dt>Passing</dt>
-                <dd>
-                  {report.passed} of {report.total}
-                </dd>
-              </div>
-              {naList.length > 0 && (
-                <div>
-                  <dt>Not applicable</dt>
-                  <dd>{naList.length}</dd>
+              <div className="sl-main">
+                <div className="sl-title">
+                  <h1 ref={heading} tabIndex={-1}>
+                    {stepTitle[step]}
+                  </h1>
+                  <p className="sl-meta">
+                    <span className="sl-repo">{report.repo}</span>
+                    <span>{failing.length} failing</span>
+                    <span>{report.passed} passing</span>
+                    {naList.length > 0 && <span>{naList.length} not applicable</span>}
+                    {omitted ? <span>{plural(omitted, "file")} not read</span> : null}
+                  </p>
                 </div>
-              )}
-              {omitted ? (
-                <div>
-                  <dt>Not read</dt>
-                  <dd>{plural(omitted, "file")}</dd>
+                <div
+                  className="check-board"
+                  role="img"
+                  aria-label={`${failing.length} checks failing, ${passedList.length} passing, ${naList.length} not applicable`}
+                >
+                  {board.map((r, i) => {
+                    const state = r.skipped ? "na" : r.passed ? "pass" : stillFailing && !stillFailing.has(r.checkId) ? "fixed" : r.severity;
+                    return <span key={r.checkId} className={`cb-cell is-${state}`} title={r.title} style={{ ["--i" as string]: i }} />;
+                  })}
                 </div>
-              ) : null}
-            </dl>
-            <div className="scan-actions">
-              <button type="button" className="button secondary" onClick={() => exportAs("md")}>
-                Report .md
-              </button>
-              <button type="button" className="button secondary" onClick={() => exportAs("json")}>
-                Data .json
-              </button>
-              {shareLink() && (
-                <button type="button" className="button secondary" onClick={copyLink}>
-                  Copy link
-                </button>
-              )}
-              <p className="copied-note" role="status">
-                {copied}
-              </p>
-            </div>
-          </section>
-        )}
+                <p className="sl-legend">
+                  {SEVERITIES.filter((sv) => failCount(sv) > 0).map((sv) => (
+                    <span key={sv} className={`lg lg-${sv}`}>
+                      {failCount(sv)} {sv}
+                    </span>
+                  ))}
+                  <span className="lg lg-pass">{passedList.length} passing</span>
+                  {after && failing.length - after.failing.length > 0 && (
+                    <span className="lg lg-fixed">{failing.length - after.failing.length} fixed by your approvals</span>
+                  )}
+                </p>
+                {step === "findings" && <IndiaLens results={report.results} afterFailing={after ? after.failing : null} />}
+              </div>
+              <details className="export-menu">
+                <summary className="button secondary">Export</summary>
+                <div className="export-items">
+                  <button type="button" onClick={() => exportAs("md")}>
+                    Report (.md)
+                  </button>
+                  <button type="button" onClick={() => exportAs("json")}>
+                    Data (.json)
+                  </button>
+                  {shareLink() && (
+                    <button type="button" onClick={copyLink}>
+                      Copy link
+                    </button>
+                  )}
+                </div>
+                <p className="copied-note" role="status">
+                  {copied}
+                </p>
+              </details>
+            </section>
+          );
+        })()}
 
         {error && (
           <div className="state-box error" role="alert">
@@ -1368,111 +1387,93 @@ export function Dashboard() {
 
         {step === "findings" && report && (
           <section className="findings-step">
-            <div className="step-head with-actions">
-              <div>
-                <h1 ref={heading} tabIndex={-1}>
-                  {stepTitle.findings}
-                </h1>
-                <p className="lede">
-                  {failing.length === 0
-                    ? `Every applicable check passes on ${report.repo}.`
-                    : `${plural(failing.length, "check")} failing, worst first.`}
-                </p>
-              </div>
-              <label className="lang-pick">
-                <span>Explain in</span>
-                <select
-                  value={lang === "hi" ? "hi" : aiLang}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setLang(v === "hi" ? "hi" : "en");
-                    setAiLang(v);
-                  }}
-                >
-                  {AI_LANGS.map((l) => {
-                    const builtIn = l.id === "en" || l.id === "hi";
-                    return (
-                      <option key={l.id} value={l.id} lang={l.id} disabled={!builtIn && !aiFor}>
-                        {l.native}
-                        {l.id === "en" ? "" : ` (${l.label})`}
-                        {!builtIn && !aiFor ? " · on the live site" : ""}
-                      </option>
-                    );
-                  })}
-                </select>
-              </label>
-            </div>
-            <IndiaLens results={report.results} afterFailing={mock ? null : (summary?.failing ?? null)} />
-            <div className="findings-layout">
-            <aside className="findings-rail" aria-label="Filter findings">
-            <div className="toolbar">
-              <label className="search-box">
-                <span className="visually-hidden">Search checks</span>
-                <input
-                  ref={searchInput}
-                  type="search"
-                  placeholder="Search checks, files, evidence"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                />
-                <kbd aria-hidden="true">/</kbd>
-              </label>
-              <div className="seg" role="group" aria-label="Show">
-                {filterButtons.map((f) => (
-                  <button key={f.id} type="button" aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}>
-                    {f.label} <span className="count">{f.n}</span>
+            <div className="pane findings-sheet">
+              <div className="sheet-toolbar" role="toolbar" aria-label="Filter findings">
+                <label className="search-box">
+                  <span className="visually-hidden">Search checks</span>
+                  <input
+                    ref={searchInput}
+                    type="search"
+                    placeholder="Search checks, files, evidence"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                  />
+                  <kbd aria-hidden="true">/</kbd>
+                </label>
+                <div className="seg" role="group" aria-label="Show">
+                  {filterButtons.map((f) => (
+                    <button key={f.id} type="button" aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}>
+                      {f.label} <span className="count">{f.n}</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="seg" role="group" aria-label="Group by">
+                  <button type="button" aria-pressed={view === "severity"} onClick={() => setView("severity")}>
+                    Severity
                   </button>
-                ))}
+                  <button type="button" aria-pressed={view === "category"} onClick={() => setView("category")}>
+                    Category
+                  </button>
+                </div>
+                <label className="lang-pick">
+                  <span className="visually-hidden">Explain in</span>
+                  <select
+                    value={lang === "hi" ? "hi" : aiLang}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setLang(v === "hi" ? "hi" : "en");
+                      setAiLang(v);
+                    }}
+                  >
+                    {AI_LANGS.map((l) => {
+                      const builtIn = l.id === "en" || l.id === "hi";
+                      return (
+                        <option key={l.id} value={l.id} lang={l.id} disabled={!builtIn && !aiFor}>
+                          {l.native}
+                          {l.id === "en" ? "" : ` (${l.label})`}
+                          {!builtIn && !aiFor ? " · on the live site" : ""}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </label>
               </div>
-              <div className="seg" role="group" aria-label="Group by">
-                <button type="button" aria-pressed={view === "severity"} onClick={() => setView("severity")}>
-                  By severity
-                </button>
-                <button type="button" aria-pressed={view === "category"} onClick={() => setView("category")}>
-                  By category
-                </button>
-              </div>
-            </div>
-            </aside>
-            <div className="findings-main">
-            {lang === "hi" && (
-              <p className="hi-line" lang="hi">
-                {report.total} {ui.hi.of} <strong>{report.passed}</strong> {ui.hi.checksPass}
-              </p>
-            )}
-            {shown.length === 0 ? (
-              <p className="empty-state">{q ? `No ${filter === "all" ? "" : `${filterButtons.find((f) => f.id === filter)?.label.toLowerCase()} `}checks match “${query.trim()}”.` : "Nothing here."}</p>
-            ) : view === "severity" ? (
-              <div className="finding-list">
-                {shown.map((r) => (
-                  <FindingRow key={r.checkId} result={r} lang={lang} hasFix={hasFix(r)} ai={aiFor} />
-                ))}
-              </div>
-            ) : (
-              groups.map((g) => (
-                <section className="group" key={g.id}>
-                  <h3>
-                    <span className="group-letter">{groupLabels[g.id]}</span>
-                  </h3>
-                  <div className="finding-list">
-                    {g.items.map((r) => (
-                      <FindingRow key={r.checkId} result={r} lang={lang} hasFix={hasFix(r)} ai={aiFor} />
-                    ))}
-                  </div>
-                </section>
-              ))
-            )}
-            {failing.length > 0 && (
-              <div className="step-cta">
-                <p>
-                  <strong>{fixableFailing}</strong> of {failing.length} can be fixed automatically.
+              {lang === "hi" && (
+                <p className="hi-line" lang="hi">
+                  {report.total} {ui.hi.of} <strong>{report.passed}</strong> {ui.hi.checksPass}
                 </p>
-                <button type="button" className="button primary" onClick={() => go("fixes")}>
-                  Review fixes
-                </button>
-              </div>
-            )}
-            </div>
+              )}
+              {shown.length === 0 ? (
+                <p className="sheet-empty">{q ? `No ${filter === "all" ? "" : `${filterButtons.find((f) => f.id === filter)?.label.toLowerCase()} `}checks match “${query.trim()}”.` : "Nothing here."}</p>
+              ) : (
+                (view === "severity"
+                  ? SEVERITIES.map((sv) => ({ id: sv as string, label: sv as string, items: shown.filter((r) => r.severity === sv) }))
+                  : groups.map((g) => ({ id: g.id as string, label: groupLabels[g.id], items: g.items }))
+                )
+                  .filter((g) => g.items.length > 0)
+                  .map((g) => (
+                    <section className="sheet-group" key={g.id}>
+                      <h3 className={view === "severity" ? `sg-${g.id}` : undefined}>
+                        {g.label} <span>{g.items.length}</span>
+                      </h3>
+                      <div className="finding-list">
+                        {g.items.map((r) => (
+                          <FindingRow key={r.checkId} result={r} lang={lang} hasFix={hasFix(r)} ai={aiFor} showSeverity={view !== "severity"} />
+                        ))}
+                      </div>
+                    </section>
+                  ))
+              )}
+              {failing.length > 0 && (
+                <div className="sheet-foot">
+                  <p>
+                    <strong>{fixableFailing}</strong> of {failing.length} failing checks can be fixed automatically.
+                  </p>
+                  <button type="button" className="button primary" onClick={() => go("fixes")}>
+                    Review fixes
+                  </button>
+                </div>
+              )}
             </div>
           </section>
         )}
@@ -1481,9 +1482,6 @@ export function Dashboard() {
           <section className="fixes-step">
             <div className="step-head with-actions">
               <div>
-                <h1 ref={heading} tabIndex={-1}>
-                  {stepTitle.fixes}
-                </h1>
                 <p className="lede">
                   Nothing changes until you approve it.
                 </p>
@@ -1626,11 +1624,6 @@ export function Dashboard() {
 
         {step === "verify" && report && patchResult && (
           <section className="verify-step">
-            <div className="step-head">
-              <h1 ref={heading} tabIndex={-1}>
-                {stepTitle.verify}
-              </h1>
-            </div>
             <div className="verify-scores">
               <div>
                 <span>Before</span>
