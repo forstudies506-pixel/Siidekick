@@ -524,6 +524,7 @@ export default function FaultyTerminal({
   variation,
   lightMode = false,
   dpr,
+  maxFps = 0,
   className = '',
   style,
   ...rest
@@ -560,7 +561,8 @@ export default function FaultyTerminal({
     clickSeconds: CLICK_SECONDS[clickEffect] ?? 1,
     variation,
     lightMode,
-    dpr
+    dpr,
+    maxFps
   };
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
@@ -745,6 +747,11 @@ export default function FaultyTerminal({
       raf = 0;
       if (!visible || document.hidden) return;
       const s = settingsRef.current;
+      // Optional frame cap: a slow field looks the same at 30 fps and leaves the GPU free for the page.
+      if (s.maxFps > 0 && last && now - last < 1000 / s.maxFps - 2) {
+        raf = requestAnimationFrame(frame);
+        return;
+      }
       const dt = last ? clamp((now - last) / 1000, 0.001, 1 / 20) : 1 / 60;
       last = now;
       clock += dt;

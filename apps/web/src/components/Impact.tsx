@@ -10,8 +10,8 @@ import { useRef, useState, type ReactNode } from "react";
 import type { CheckResult, Severity } from "../../../../packages/engine/src/types";
 import type { ApprovedSummary, PatchEntry, VerifyStatus } from "../api/client";
 
-const BEFORE = "#6b8fd6";
-const AFTER = "#c98500";
+const BEFORE = "#7d8494";
+const AFTER = "#5fb892";
 
 type Report = { score: number; repo: string; results: CheckResult[] };
 
@@ -509,8 +509,8 @@ export function ImpactSection(props: ImpactData & { onCard: () => void }) {
         { label: `${side}: tests`, ms: m?.testMs ?? 0, color: shades[1] },
         { label: `${side}: npm audit`, ms: m?.auditMs ?? 0, color: shades[2] },
       ].filter((s) => s.ms > 0);
-    const b = part(mb, "Before", [BEFORE, "#8ba8e2", "#b3c6ee"]);
-    const a = part(ma, "After", [AFTER, "#dba640", "#e9c47c"]);
+    const b = part(mb, "Before", [BEFORE, "#9aa0ae", "#b9bdc8"]);
+    const a = part(ma, "After", [AFTER, "#82c9a9", "#a8dac2"]);
     const timed = [...b, ...a].reduce((x, s) => x + s.ms, 0);
     const rest = n.totalMs - timed;
     segs = [...(rest > 0 ? [{ label: "Queue, container start, upload & trust rule", ms: rest, color: "#4a4a52" }] : []), ...b, ...a];

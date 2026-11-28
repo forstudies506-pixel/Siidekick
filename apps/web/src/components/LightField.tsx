@@ -17,7 +17,6 @@ export function LightField() {
     if (chromium) root.classList.add("has-refraction");
     const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (still) {
-      document.querySelector<SVGSVGElement>(".lf-defs")?.pauseAnimations();
       return () => root.classList.remove("has-refraction");
     }
     // A press sends a ring of light through the glass from where you touched it.
@@ -56,7 +55,7 @@ export function LightField() {
             digitSize={1.3}
             timeScale={0.12}
             brightness={0.95}
-            glow={0.6}
+            glow={0.8}
             scanlineIntensity={0.12}
             glitchAmount={0.4}
             flickerAmount={0.25}
@@ -70,6 +69,7 @@ export function LightField() {
             clickEffect="none"
             pageLoadAnimation
             dpr={1}
+            maxFps={30}
           />
         </div>
       </div>
@@ -89,9 +89,7 @@ export function LightField() {
           <feColorMatrix in="slopeX" type="matrix" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0 1" result="mapX" />
           <feColorMatrix in="slopeY" type="matrix" values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 0 1" result="mapY" />
           <feComposite in="mapX" in2="mapY" operator="arithmetic" k1="0" k2="1" k3="1" k4="0" result="lensMap" />
-          <feTurbulence type="fractalNoise" baseFrequency="0.0035 0.008" numOctaves="1" seed="11" result="flow">
-            <animate attributeName="baseFrequency" dur="22s" values="0.0035 0.008;0.0048 0.0062;0.003 0.0074;0.0035 0.008" repeatCount="indefinite" />
-          </feTurbulence>
+          <feTurbulence type="fractalNoise" baseFrequency="0.0035 0.008" numOctaves="1" seed="11" result="flow" />
           <feGaussianBlur in="flow" stdDeviation="6" result="soft" />
           <feComposite in="lensMap" in2="soft" operator="arithmetic" k1="0" k2="1" k3="0.3" k4="-0.15" result="map" />
           <feDisplacementMap in="SourceGraphic" in2="map" scale="56" xChannelSelector="R" yChannelSelector="G" result="dR" />

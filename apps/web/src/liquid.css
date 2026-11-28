@@ -7,10 +7,15 @@
   --night: #05070d;
   --ink: #eceff6;
   --muted: #98a2b8;
-  --saffron: #f4b860;
+  --saffron: #e3ad68;
   --indus: #5b7cff;
-  --clean: #46d39a;
-  --risk: #ff6f61;
+  --clean: #5fb892;
+  --risk: #e0675d;
+  /* risk is one red at four strengths; everything else is neutral */
+  --sev-critical: var(--risk);
+  --sev-high: color-mix(in oklab, var(--risk) 72%, #7a7f8c);
+  --sev-medium: color-mix(in oklab, var(--risk) 46%, #6a6f7c);
+  --sev-low: color-mix(in oklab, var(--risk) 20%, #5a5f6c);
 
   /* the old names, remapped so existing components inherit the new palette */
   --bg: var(--night);
@@ -731,3 +736,67 @@ html::-webkit-scrollbar, body::-webkit-scrollbar { width: 0; height: 0; display:
   .sheet-toolbar .lang-pick { margin-left: 0; }
 }
 @media (prefers-reduced-motion: reduce) { .cb-cell { animation: none !important; } }
+
+/* =========================================================
+   Palette: four roles, each colour means one thing
+   atmosphere (LED field) · action (saffron) · risk (one red, four strengths) · resolved (green)
+   ========================================================= */
+.severity.critical { color: var(--sev-critical); }
+.severity.high { color: var(--sev-high); }
+.severity.medium { color: var(--sev-medium); }
+.severity.low, .severity.info { color: var(--sev-low); }
+.severity { border-color: currentColor; background: color-mix(in oklab, currentColor 8%, transparent); }
+
+.cb-cell.is-critical, .row-dot.is-critical, .lg-critical { --c: var(--sev-critical); }
+.cb-cell.is-high, .row-dot.is-high, .lg-high { --c: var(--sev-high); }
+.cb-cell.is-medium, .row-dot.is-medium, .lg-medium { --c: var(--sev-medium); }
+.cb-cell.is-low, .cb-cell.is-info, .row-dot.is-low, .row-dot.is-info, .lg-low, .lg-info { --c: var(--sev-low); }
+.cb-cell.is-pass, .cb-cell.is-fixed, .row-dot.is-passed, .lg-pass, .lg-fixed { --c: var(--clean); }
+.cb-cell { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05) inset, 0 0 8px -3px var(--c, transparent); }
+.row-dot, .lg::before { box-shadow: none; }
+.sheet-group h3.sg-critical { color: var(--sev-critical); }
+.sheet-group h3.sg-high { color: var(--sev-high); }
+.sheet-group h3.sg-medium { color: var(--sev-medium); }
+.sheet-group h3.sg-low, .sheet-group h3.sg-info { color: var(--sev-low); }
+
+/* tags that are context, not status, are neutral */
+.law-tag { color: var(--muted) !important; border-color: rgba(255, 255, 255, 0.18) !important; background: transparent !important; }
+.diff-code.add { color: var(--clean); background: color-mix(in oklab, var(--clean) 9%, transparent); }
+
+/* India facts: red or green dot only */
+.il-item.is-bad { background: none; }
+.il-item.is-bad::before { color: var(--risk); }
+.il-item.is-ok::before { color: var(--clean); }
+.il-big strong { color: var(--clean); }
+
+/* the light round the glass edge is white, not another colour */
+:is(.site-header, .dashboard-header, .scan-strip, .repo-form, .hero-form, .lens)::before {
+  background:
+    conic-gradient(from var(--sweep), transparent 0deg 300deg, rgba(255, 255, 255, 0.4) 330deg, transparent 360deg),
+    linear-gradient(150deg, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0.05) 32%, rgba(255, 255, 255, 0.02) 62%, rgba(255, 255, 255, 0.16));
+}
+.repo-form:focus-within, .hero-form:focus-within { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 0 0 1px rgba(227, 173, 104, 0.3), 0 20px 60px -28px rgba(227, 173, 104, 0.28); }
+html .is-rippling.is-rippling::after {
+  background: radial-gradient(circle at var(--rx, 50%) var(--ry, 50%), transparent calc(var(--ripple) * 560px - 34px), rgba(255, 255, 255, calc(0.14 * (1 - var(--ripple)))) calc(var(--ripple) * 560px), transparent calc(var(--ripple) * 560px + 34px));
+}
+.button.primary { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), inset 0 -2px 6px rgba(120, 60, 0, 0.2), 0 8px 22px -12px rgba(227, 173, 104, 0.5); }
+
+/* =========================================================
+   Performance: keep every frame cheap at high refresh rates
+   ========================================================= */
+/* the LED canvas is not filtered per frame; its bloom comes from the shader */
+.lf-terminal .faulty-terminal-canvas { filter: none; }
+.lf-terminal { will-change: opacity; contain: strict; }
+/* the sticky bars refract nothing worth the cost while scrolling: plain frosted glass */
+.has-refraction :is(.site-header, .dashboard-header) { -webkit-backdrop-filter: blur(14px) saturate(140%); backdrop-filter: blur(14px) saturate(140%); }
+/* lighter blur on panes: under a 74% tint a smaller radius looks the same and costs far less */
+:is(.pane, .side-card, .india-lens, .findings-rail, .finding-list, .fix-list, .fix-detail, .manual-list, .still-failing, .ship-card, .aws-panel, .proof-panel, .viz-card, .verify-scores > div, .state-box, .empty-state, .step-cta, .check-col, .flow li, .catch, .facts) { -webkit-backdrop-filter: blur(16px) saturate(125%); backdrop-filter: blur(16px) saturate(125%); }
+/* step changes animate opacity and transform only (no full-page blur) */
+@keyframes vt-out { to { opacity: 0; transform: translateY(-6px); } }
+@keyframes vt-in { from { opacity: 0; transform: translateY(10px); } }
+@keyframes cb-on { from { opacity: 0; transform: scale(0.4); } }
+/* glass panels do not move on hover: moving a backdrop-filtered layer re-filters it every frame */
+.side-card:hover, .ship-card:hover, .viz-card:hover { transform: none; }
+/* sections below the fold are not laid out or painted until they come near the screen */
+.sheet-group, .viz-card, .manual-list li, .still-failing, .ship-row, .check-cols { content-visibility: auto; contain-intrinsic-size: auto 320px; }
+.finding-row { contain: layout style; }

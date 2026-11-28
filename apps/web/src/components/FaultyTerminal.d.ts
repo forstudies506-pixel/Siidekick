@@ -29,6 +29,8 @@ export interface FaultyTerminalProps {
   variation?: number;
   lightMode?: boolean;
   dpr?: number;
+  /** Cap the redraw rate (0 = every display frame). */
+  maxFps?: number;
   className?: string;
   style?: CSSProperties;
 }
