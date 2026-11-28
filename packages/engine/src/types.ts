@@ -150,5 +150,7 @@ export interface ScanReport {
   total: number;
   /** Checks that did not apply to this repo. */
   skipped?: number;
+  /** Files left out by the repo's .siidekickignore, and the patterns that did it. */
+  ignored?: { files: number; patterns: string[] };
   results: CheckResult[];
 }

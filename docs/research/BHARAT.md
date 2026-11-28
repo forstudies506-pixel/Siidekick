@@ -6,6 +6,8 @@ Why Siidekick targets small Indian web teams. Every claim ends with a footnote. 
 
 - More than 7.28 crore MSMEs are registered on the Udyam portal, which launched on 1 July 2020. This counts registrations, not websites. [1]
 - Internet users in India reached 886 million in 2024, of which 488 million are in rural India. [8]
+- About 228 billion UPI transactions worth nearly Rs 300 lakh crore were made in calendar 2025, up from 172 billion worth Rs 246.82 lakh crore in 2024. Secondary source: news reports of NPCI data. [10]
+- Over 21.9 million developers build on GitHub in India, the second-largest community; India added about 5.2 million in 2025. [11]
 
 ## Cyber incidents
 
@@ -55,3 +57,5 @@ Accessed 2026-11-25.
 7. "Directions under sub-section (6) of section 70B of the IT Act, 2000", CERT-In, MeitY, 28 April 2022. https://www.cert-in.org.in/PDF/CERT-In_Directions_70B_28.04.2022.pdf
 8. "Internet in India 2024", Kantar and IAMAI. https://www.iamai.in/sites/default/files/research/Kantar_%20IAMAI%20report_2024_.pdf
 9. "Dravidian Languages Now the Mother Tongue of Only 18.9% Indians", The Quint (reports Census 2011 data). https://www.thequint.com/news/india/dravidian-languages-lose-mother-tongue-share-to-hindi
+10. "Rs 300 lakh crore of UPI transactions made in CY2025", Deccan Chronicle (reports NPCI data), and "UPI ends 2025 strong with record 21.63 bn transactions", Business Standard, Jan 2026. https://www.deccanchronicle.com/business/economics/rs-300-lakh-crore-of-upi-transactions-made-in-cy2025-1927713 · https://www.business-standard.com/industry/news/upi-ends-2025-strong-note-record-transactions-december-126010100687_1.html
+11. "Octoverse: A new developer joins GitHub every second as AI leads TypeScript to #1", GitHub, 28 October 2025. https://github.blog/news-insights/octoverse/octoverse-a-new-developer-joins-github-every-second-as-ai-leads-typescript-to-1/

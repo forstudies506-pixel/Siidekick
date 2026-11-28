@@ -21,6 +21,15 @@ describe("secrets-in-repo", () => {
     expect(f[0].evidence).not.toContain(KEY);
   });
 
+  it("skips vendors' published documentation keys but still flags a real-looking one", async () => {
+    const example = "AKIA" + "IOSFODNN7EXAMPLE";
+    const real = "AKIA" + "Q3EGWXYZ2ABCDEFG";
+    const f = await secretsInRepo.detect({ repo: { name: "x", files: [{ path: "README.md", content: `aws_access_key_id = ${example}
+key: ${real}
+` }] } });
+    expect(f.map((x) => x.line)).toEqual([2]);
+  });
+
   it("ignores env reads and placeholder examples", async () => {
     const f = await secretsInRepo.detect({ repo: { name: "x", files: repo.files.slice(1) } });
     expect(f).toEqual([]);

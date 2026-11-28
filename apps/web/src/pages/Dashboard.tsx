@@ -1202,6 +1202,7 @@ export function Dashboard() {
                     <span>{report.passed} passing</span>
                     {naList.length > 0 && <span>{naList.length} not applicable</span>}
                     {omitted ? <span>{plural(omitted, "file")} not read</span> : null}
+                    {report.ignored ? <span title={report.ignored.patterns.join("\n")}>{plural(report.ignored.files, "file")} left out by .siidekickignore</span> : null}
                   </p>
                 </div>
                 <div

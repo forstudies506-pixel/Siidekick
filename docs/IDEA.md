@@ -1,61 +1,77 @@
-# Siidekick: the idea
+# Siidekick: idea brief
 
-**A security sidekick for India's small web teams.** You paste your repo. Siidekick explains each risk in plain English or Hindi and proposes small fixes that only *add* code. A diff guard, enforced in code, proves that none of your code was deleted. You approve each fix, and the score jumps.
+**Catch the breach before it ships.** *Making Cybersecurity accessible to all.*
 
-We never replace your code. Siidekick reduces risk; it does not make anything "unhackable".
+Team **Schrödinger's Code**, a part of Echelon Systems Architecture · Campus to Cloud Hackathon sponsored by AWS, Techfest 2026-27
 
-## Who it is for
-These people ship websites with no security person:
-- student founders
-- college club and fest sites
-- small shops going online
-- NGOs
+Live: https://d1ulntgja5qae0.cloudfront.net · One-click demo: https://d1ulntgja5qae0.cloudfront.net/app?demo=1 · Code: https://github.com/forstudies506-pixel/Siidekick
 
-Their usual failure modes:
-- a key pasted into the repo
-- no security headers
-- an `/admin` route anyone can call
-- SQL built from strings
-- a two-year-old `lodash`
+---
 
-They don't need another list of 200 warnings in English jargon. They need someone to say "this is the problem, this is the five-line fix, nothing of yours is touched" and then make the fix.
+## 1. The problem
 
-Sourced context: `docs/research/BHARAT.md`. We claim no statistic that isn't sourced there.
+India is building its own internet, fast, and mostly without security engineers.
 
-## What makes it different
-Existing tools either:
-- report findings and leave the fix to an expert, or
-- let an AI rewrite code the owner can't review.
+- **886 million** Indians were online in 2024, 488 million of them in rural India. *(Kantar–IAMAI, Internet in India 2024)*
+- **About 228 billion UPI payments**, worth nearly **₹300 lakh crore**, were made in 2025. *(NPCI data, as reported by Business Standard and Deccan Chronicle, Jan 2026)*
+- **21.9 million developers** build on GitHub in India, the second-largest community in the world. *(GitHub Octoverse 2025)*
+- **7.28 crore** small businesses are registered on Udyam. *(Ministry of MSME, PIB)*
 
-Comparison: `docs/research/COMPETITORS.md`.
+The sites and apps behind those numbers are increasingly written by a kirana store owner's nephew, a college fest team, a solo developer at 2 a.m., often with an AI assistant. They take UPI and Razorpay payments, OTP logins and Aadhaar or PAN for KYC. And they ship with the same mistakes: a payment accepted without checking its signature, an OTP sent back in the API response, a key pasted into the repo, an admin route anyone can call, a dependency with a known exploit.
 
-| | Siidekick |
-|---|---|
-| Fixes | Deterministic templates per check. The same input gives the same patch, so it can be audited. |
-| Safety | The diff guard rejects any patch that deletes owner code. It is enforced in `packages/engine/src/diffGuard.ts`, not just promised. |
-| Proof | `--verify` runs the owner's own tests after each patch and rolls back any patch that breaks them. Every patch is saved with a `git apply -R` revert line. |
-| Language | Every finding comes with a plain-language "why it matters", in English and Hindi. |
-| Cost | Free. Runs within the AWS free tier, and sends no code to any AI service. |
+The cost is real:
+- **29.44 lakh** cyber incidents were handled by CERT-In in 2025. *(PIB, Jan 2026)*
+- Cyber crime cases rose **24.4%** in a single year (52,974 in 2021 to 65,893 in 2022), and **64.8%** were fraud. *(NCRB Crime in India 2022, via news report)*
+- The DPDP Rules (notified 14 November 2025) set penalties of up to **₹250 crore** for failing to keep reasonable security safeguards. *(PIB)*
+- CERT-In requires listed incidents to be reported **within 6 hours**. *(CERT-In Directions, April 2022)*
 
-## The demo (the moments a judge remembers)
-1. Paste a public GitHub URL, or use the planted-flaw demo shop. Within seconds the scan shows a score of **3/100**.
-2. Findings appear in plain words, with a हिन्दी toggle.
-3. Each fix shows its diff with the added lines highlighted, and the guard's verdict.
-4. **Tamper:** make a fix delete one line of owner code. The real guard on the server blocks it and shows the line.
-5. Approve the fixes. The score animates to **77**. The three remaining items are honest owner tasks, each with its rewrite shown.
-6. Download the patched repo as a zip, including `.siidekick/*.patch` files and a log with revert commands.
-7. *(stretch)* The Siidekick Guard GitHub Action keeps the repo safe on every pull request after that.
+Today's tools do not reach these people. Scanners produce long lists of warnings in English jargon and stop there. AI coding tools rewrite code the owner cannot review. Professional security help is unaffordable. **Security has been a luxury. It should not be.**
 
-## Judging map (Campus to Cloud weights, ROADMAP §12)
-| Criterion | Weight | What answers it |
+## 2. Who it is for
+
+People who ship code that handles money or personal data, with no security person:
+- **students and college clubs** building fest, event and placement sites;
+- **small shops and local businesses** taking orders and UPI payments online;
+- **solo and indie developers** shipping side projects and freelance work;
+- **NGOs and early startups** collecting personal data.
+
+They are comfortable in Hindi, Tamil, Bengali or another Indian language as often as in English. They need someone to say "this is the problem, this is the fix, none of your code is touched", then make the fix and prove it works.
+
+## 3. How Siidekick works
+
+1. **Scan.** Paste a public GitHub repo (up to 3,000 files and 10 MB of code) or upload a folder. 39 checks read the code as text; nothing is run on our server. A **Bharat Pack** of India-specific checks catches unverified Razorpay and Paytm/UPI payments, Aadhaar and PAN in code or logs, and leaked or guessable OTPs. Checks for AI-era mistakes catch invented package names, server keys shipped to the browser, open Firebase or Supabase rules, and login tokens that are decoded but never verified.
+2. **Explain.** Every finding in plain words, with the file and line. **Amazon Bedrock** (Nova Lite) explains any finding in **8 languages**: English, Hindi, Bengali, Marathi, Tamil, Telugu, Gujarati, Kannada. Each AI answer is checked against the scan evidence, so it cannot invent a CVE or a version number. An **India lens** shows which findings matter under the DPDP Act and CERT-In's 6-hour rule.
+3. **Fix.** Each fixable finding gets a small, deterministic patch that **only adds code**. A **diff guard** refuses any patch that deletes or rewrites the owner's code, enforced on the server, not promised. Nothing changes until the owner approves each fix.
+4. **Prove.** Approved fixes run in a **throwaway AWS CodeBuild** container, original and fixed copies side by side: install, the project's own tests, and an independent `npm audit`. A fix is labelled **verified** only when the tests still pass and the flagged packages are gone.
+5. **Ship.** Download the changed files with a revert log, or open a **GitHub pull request** carrying the evidence. A human always merges. A **GitHub Action** keeps scanning every future pull request.
+
+What it deliberately does not do: the AI never writes your code; uploaded code is never executed on our server; Siidekick never claims an app is "unhackable".
+
+## 4. Impact
+
+**Measured on the live AWS deployment** against a realistic college-fest shop (28 November 2026). Nothing here is estimated.
+
+| | Before | After Siidekick |
 |---|---|---|
-| Bharat impact | 30 | The target users above, Hindi explanations, free, and a pilot on real sites the owners agreed to share (human-supplied, #2) |
-| AWS build | 25 | A live URL running Lambda (arm64), API Gateway HTTP API, DynamoDB, S3, and CloudFront via SAM |
-| Innovation | 25 | The diff guard as a hard gate, test-and-rollback, deterministic patches, and the tamper demo |
-| Demo | 20 | The seven moments above, in under 3 minutes |
+| Security score | 33 / 100 | **62 / 100** |
+| Failing checks | 23 | 12 |
+| Checks that can expose personal data (DPDP-relevant) | 11 | 6 |
+| Forged Razorpay payment | `200`: free fest pass issued | **`400`: rejected** (a real signed payment still works) |
+| Live attacks that work against the shop | 7 | 1 |
+| Vulnerable packages (independent `npm audit` on AWS) | 8 | **0** |
+| The shop's own tests | 4 / 4 pass | 4 / 4 pass |
+| Owner's lines deleted | | **0** (+209 added) |
+| Time to proof on AWS | | **74 s** |
 
-## Deliberately not doing
-- **AI-written patches.** Bedrock is blocked, and sending code to a third-party model would undercut the safety story.
-- **Running uploaded code on our server.** Test-and-rollback is local CLI only.
-- **Login and accounts.** Cognito comes after the hackathon.
-- **Claiming a site is "secure".**
+The 12 checks that still fail are left to the owner on purpose (for example, rewriting a SQL query), each with the exact fix and an explanation in their language.
+
+It scales to real projects: on the live site, `fastify/fastify` scans in 7 s and `nestjs/nest` (2,824 files) in 11 s. Siidekick also scans itself: with a `.siidekickignore` for its deliberately vulnerable demos and rule files, its own repo scores 94/100 with no critical findings.
+
+**Why it matters:** for a student, a shop owner or a solo developer, Siidekick turns "you have 200 warnings" into "here are the five fixes that stop a fake payment or a stolen account, explained in your language, proven before you merge". That is the gap between a forged ₹499 fest pass, a leaked customer list or a DPDP notice, and an app people can trust. It is free to use, needs no login, and runs on AWS for a few cents a month.
+
+## 5. Why most people should care
+
+Every Indian who pays by UPI, logs in with an OTP or shares Aadhaar with a small business depends on code that nobody security-checked. Siidekick makes that check available to every builder, in their language, at no cost: **cybersecurity accessible to all.**
+
+---
+*All statistics are sourced in `docs/research/BHARAT.md` or listed inline. Siidekick reduces risk; no tool can promise an app is unhackable, and this one does not.*

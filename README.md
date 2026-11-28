@@ -1,5 +1,7 @@
 # Siidekick
 
+**Catch the breach before it ships.** *Making Cybersecurity accessible to all.*
+
 **A security engineer for every Indian student, college and small business that ships code without one.**
 
 Siidekick reads your code, finds the holes that hurt Indian users (fake UPI and Razorpay payments, leaked Aadhaar numbers, OTPs handed to attackers, keys in the repo), explains each one in your own language, fixes it without touching your code, and **proves the fix on AWS before you merge it**.
@@ -153,7 +155,21 @@ jobs:
         with: { fail-on: none }                            # or critical / high / medium
 ```
 
-Findings appear on the PR's changed lines and in the job summary, with a link to the full report. `.env` files are never sent; a committed one is flagged from the runner. Details: [action/README.md](action/README.md).
+Findings appear on the PR's changed lines and in the job summary, with a link to the full report. `.env` files are never sent; a committed one is flagged from the runner. Details: [action/README.md](action/README.md). This repo runs it on itself: [.github/workflows/siidekick.yml](.github/workflows/siidekick.yml).
+
+### Leave out demos and fixtures: `.siidekickignore`
+
+Put a `.siidekickignore` at the repo root, with the same patterns as `.gitignore`, to leave out deliberately vulnerable demos, test fixtures or generated files:
+
+```
+# vulnerable on purpose
+demo/
+test/**/fixtures/
+*.min.js
+!demo/README.md
+```
+
+Ignored files are never hidden silently: the report says how many were left out and by which patterns. Siidekick's own repo uses one ([.siidekickignore](.siidekickignore)) for its demo shops, rule definitions and test fixtures, and scores **94/100 with no critical findings** on itself.
 
 ## Security of Siidekick itself
 
@@ -164,6 +180,7 @@ Findings appear on the PR's changed lines and in the job summary, with a link to
 
 ## Honest limits
 
+- A GitHub scan reads up to 3,000 files and 10 MB of code; an uploaded folder up to 3,000 files and 4.5 MB (one request to Lambda). Past the cap, the scan covers what fits and says how many files it left out.
 - The attack replay runs only on the bundled demo shop; your code is never run on the API.
 - The verification build has internet access so `npm install` can reach the registry. Removing it would need a NAT gateway, which isn't free, so we limit what a hostile build could do instead.
 - Some fixes are the owner's call by design: SQL rewrites, browser AI keys and Paytm/UPI callbacks are reported with the exact fix, not auto-applied.
@@ -211,5 +228,12 @@ npx tsx packages/engine/src/cli.ts fix demo/vulnerable-app --out ./fixed --verif
 ## Team
 
 **Schrödinger's Code**, a part of Echelon Systems Architecture. Built for the Campus to Cloud Hackathon sponsored by AWS, Techfest 2026-27, IIT Bombay.
+
+| Name | Role |
+|---|---|
+| Rajveer Raj | Security & AWS |
+| Ashwin Dandotiya | Cloud Architect & AI |
+| Ujesha Sivaramakrishnan | Product & Experience Designer |
+| Priyanshu Satapathy | Research & Bharat Impact Lead |
 
 *Siidekick reduces risk. No tool can promise an app is unhackable, and this one doesn't.*

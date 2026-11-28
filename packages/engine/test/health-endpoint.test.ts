@@ -33,6 +33,17 @@ describe("health-endpoint", () => {
     expect(f).toEqual([]);
   });
 
+  it("passes when a route table lists api/health", async () => {
+    const repo: RepoSnapshot = {
+      name: "x",
+      files: [
+        { path: "src/server.js", content: "const express = require('express');\nconst app = express();\napp.listen(3000);\n" },
+        { path: "src/router.ts", content: 'const routes = [{ method: "GET", path: "api/health", handler: health }];\n' },
+      ],
+    };
+    expect(await healthEndpoint.detect({ repo })).toEqual([]);
+  });
+
   it("passes when /health exists", async () => {
     const f = await healthEndpoint.detect({ repo: repo("const express = require('express');\nconst app = express();\napp.get('/health', (req, res) => res.json({ ok: true }));\nmodule.exports = app;\n") });
     expect(f).toEqual([]);

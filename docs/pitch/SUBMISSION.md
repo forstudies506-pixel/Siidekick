@@ -4,6 +4,10 @@
 
 Siidekick
 
+## Tagline
+
+**Catch the breach before it ships.** Making Cybersecurity accessible to all.
+
 ## One-line pitch
 
 Cybersecurity for everyone: scan your GitHub repo, get findings explained in your own language, approve add-only fixes, and see each fix proven in an isolated AWS build before you merge it.
@@ -26,7 +30,7 @@ Honest limits: the verification build needs internet access for `npm install` (i
 
 ## Tech stack
 
-- TypeScript, Node.js 22, React 19, Vite, Vitest (307 automated tests)
+- TypeScript, Node.js 22, React 19, Vite, Vitest; a Python edition of the scanner (283 automated tests across both)
 - AWS SAM (one template, one deploy script)
 
 ## AWS services (live build)
@@ -34,24 +38,30 @@ Honest limits: the verification build needs internet access for `npm install` (i
 Full reasoning in `docs/BUILD_SUMMARY.md`.
 
 - **Amazon CloudFront + Amazon S3**: the site on one HTTPS domain with security headers. The S3 bucket is private behind Origin Access Control.
-- **Amazon API Gateway (HTTP API) + AWS Lambda**: the scan engine (36 checks), diff guard and job starts, throttled.
-- **Amazon DynamoDB**: scan records with a 7-day TTL.
+- **Amazon API Gateway (HTTP API) + AWS Lambda**: the scan engine (39 checks), diff guard and job starts, throttled; 2 GB arm64.
+- **Amazon DynamoDB**: scan records with a 7-day TTL; records too big for one item go to S3.
 - **Amazon Bedrock (Amazon Nova Lite)**: explains findings in 8 Indian languages; every answer is checked against the scan evidence so it cannot invent a CVE or version.
 - **AWS Step Functions + AWS CodeBuild**: verified fixes. Before and after copies each get npm install, the project's own tests and an independent npm audit in a throwaway build; a Lambda applies the trust rule.
-- **Amazon S3 (artefacts)**: encrypted job inputs, outputs and verdicts, expiring after 7 days.
-- **Amazon CloudWatch**: log groups, an audit trail, alarms and one dashboard for the whole pipeline.
+- **Amazon S3 (artefacts)**: encrypted job inputs, outputs, verdicts and large scan records, expiring after 7 days.
+- **Amazon CloudWatch + Amazon SNS**: log groups, an audit trail, alarms that email the team, and one dashboard for the whole pipeline.
 - **AWS IAM**: a least-privilege role per component; the untrusted build's role reaches only its own job files.
+- **AWS SAM / CloudFormation**: the whole stack is one template, deployed with one command.
 
 ## Repo link
 
 https://github.com/forstudies506-pixel/Siidekick
 
-## Demo video link
+## Demo video
 
-TODO(team)
+In the submission Google Drive folder (under 3 minutes).
 
 ## Team
 
 **Schrödinger's Code**, a part of Echelon Systems Architecture.
 
-TODO(team): member names
+| Name | Role |
+|---|---|
+| Rajveer Raj | Security & AWS |
+| Ashwin Dandotiya | Cloud Architect & AI |
+| Ujesha Sivaramakrishnan | Product & Experience Designer |
+| Priyanshu Satapathy | Research & Bharat Impact Lead |

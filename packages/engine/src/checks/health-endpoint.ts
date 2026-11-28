@@ -11,8 +11,11 @@ function expressAppFile(files: { path: string; content: string }[]): { path: str
   return files.find((f) => APP_LINE.test(f.content));
 }
 
+/** Route tables, as in Hono, itty-router or a hand-rolled router: { method: "GET", path: "/api/health", handler }. */
+const HEALTH_TABLE = /\bpath\s*:\s*['"]\/?(api\/)?(health|healthz)['"]/;
+
 function hasHealthRoute(f: RepoFile): boolean {
-  return HEALTH_ROUTE.test(f.content) || HEALTH_FILE.test(f.path);
+  return HEALTH_ROUTE.test(f.content) || HEALTH_TABLE.test(f.content) || HEALTH_FILE.test(f.path);
 }
 
 export const healthEndpoint: Check = {

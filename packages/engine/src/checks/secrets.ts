@@ -126,7 +126,8 @@ function findHits(files: { path: string; content: string }[]): Hit[] {
     for (const [kind, re] of VENDOR_SECRETS) {
       for (const m of f.content.matchAll(re)) {
         const line = lineAt(f.content, m.index!);
-        if (seen.has(line)) continue;
+        // Vendors' published documentation keys (AWS's AKIAIOSFODNN7EXAMPLE) are examples, not credentials.
+        if (seen.has(line) || /EXAMPLE/.test(m[0])) continue;
         seen.add(line);
         hits.push({ file: f.path, line, value: m[0], kind });
       }

@@ -53,7 +53,8 @@ def run(project, url=None, health="/", start=None, cwd=None, endpoints=(), pid=N
     proc = None
     if start:
         log(f"  starting the app: {start}")
-        proc = subprocess.Popen("exec " + start, shell=True, cwd=cwd or project,
+        # Split the owner's start command into arguments; no shell, so nothing in it is interpreted.
+        proc = subprocess.Popen(shlex.split(start), cwd=cwd or project,
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         pid = proc.pid
         if not _wait(url.rstrip("/") + health):

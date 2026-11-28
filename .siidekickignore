@@ -1,0 +1,32 @@
+# .siidekickignore: paths Siidekick leaves out when it scans this repo. Same patterns as .gitignore.
+# These folders are vulnerable or full of attack patterns on purpose, so scanning them would report
+# Siidekick's demos and rules rather than Siidekick itself. The report always says how many files were left out.
+
+# CampusKart, the deliberately vulnerable demo shop used in the live demo and the attack replay
+demo/
+
+# The Python edition's vulnerable demo shop
+tools/siidekick-py/demo/
+
+# The checks themselves: each rule contains the pattern it looks for
+packages/engine/src/checks/
+tools/siidekick-py/siidekick/checks/
+
+# Test fixtures: fake keys, sample Aadhaar formats, forged tokens, vulnerable snippets
+packages/engine/test/
+apps/api/test/
+tools/siidekick-py/tests/
+tools/siidekick-py/siidekick/rules.py
+packages/engine/src/analysis/
+
+# A bundled copy of the demo shop, served by the API for the one-click demo
+apps/api/src/demoRepo.generated.json
+
+# Design notes and specs quote vulnerable snippets as examples
+docs/
+
+# The landing page shows before/after code as text (the "fix" diffs), not code that runs
+apps/web/src/pages/Landing.tsx
+
+# Sample scan data the app shows when the API is offline (it describes the demo shop's flaws)
+apps/web/src/api/mock.ts
