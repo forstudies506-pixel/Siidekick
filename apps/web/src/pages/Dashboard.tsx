@@ -1368,15 +1368,39 @@ export function Dashboard() {
 
         {step === "findings" && report && (
           <section className="findings-step">
-            <div className="step-head">
-              <h1 ref={heading} tabIndex={-1}>
-                {stepTitle.findings}
-              </h1>
-              <p className="lede">
-                {failing.length === 0
-                  ? `Every applicable check passes on ${report.repo}.`
-                  : `${plural(failing.length, "check")} failing, worst first.`}
-              </p>
+            <div className="step-head with-actions">
+              <div>
+                <h1 ref={heading} tabIndex={-1}>
+                  {stepTitle.findings}
+                </h1>
+                <p className="lede">
+                  {failing.length === 0
+                    ? `Every applicable check passes on ${report.repo}.`
+                    : `${plural(failing.length, "check")} failing, worst first.`}
+                </p>
+              </div>
+              <label className="lang-pick">
+                <span>Explain in</span>
+                <select
+                  value={lang === "hi" ? "hi" : aiLang}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setLang(v === "hi" ? "hi" : "en");
+                    setAiLang(v);
+                  }}
+                >
+                  {AI_LANGS.map((l) => {
+                    const builtIn = l.id === "en" || l.id === "hi";
+                    return (
+                      <option key={l.id} value={l.id} lang={l.id} disabled={!builtIn && !aiFor}>
+                        {l.native}
+                        {l.id === "en" ? "" : ` (${l.label})`}
+                        {!builtIn && !aiFor ? " · on the live site" : ""}
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
             </div>
             <IndiaLens results={report.results} afterFailing={mock ? null : (summary?.failing ?? null)} />
             <div className="findings-layout">
@@ -1408,27 +1432,6 @@ export function Dashboard() {
                   By category
                 </button>
               </div>
-              <div className="seg lang-toggle" role="group" aria-label="Explanation language">
-                <button type="button" aria-pressed={lang === "en"} onClick={() => setLang("en")}>
-                  English
-                </button>
-                <button type="button" aria-pressed={lang === "hi"} onClick={() => setLang("hi")} lang="hi">
-                  हिन्दी
-                </button>
-              </div>
-              {(
-                <label className="ai-lang" title={aiFor ? undefined : "AI explanations run on the live AWS site"}>
-                  <span>More languages</span>
-                  <select value={aiLang} disabled={!aiFor} onChange={(e) => setAiLang(e.target.value)}>
-                    {AI_LANGS.map((l) => (
-                      <option key={l.id} value={l.id} lang={l.id}>
-                        {l.native}
-                        {l.id === "en" ? "" : ` (${l.label})`}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
             </div>
             </aside>
             <div className="findings-main">

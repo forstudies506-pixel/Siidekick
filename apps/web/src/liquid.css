@@ -443,3 +443,25 @@ details > summary { cursor: pointer; transition: color 0.2s var(--ease); }
 .step-head .lede { font-size: 17px; color: var(--muted); }
 .connect-side:empty { display: none; }
 .il-more > p { margin: 0; min-height: 0; overflow: hidden; }
+
+/* ---------- density: calmer scale on desktop, same readability ---------- */
+/* The whole interface is drawn at 88% on wide screens (body text lands near 14-15px), so more fits without crowding. */
+@media (min-width: 1024px) {
+  .app-shell, body .site-header, .landing, .site-footer { zoom: 0.88; }
+}
+.step-head h1, .connect-main h1 { font-size: clamp(30px, 3.2vw, 46px); line-height: 1; margin-bottom: 8px; }
+.step-head .lede { margin-bottom: 22px; font-size: 17px; }
+.app-shell .dashboard { padding-top: 22px; }
+.score-block strong { font-size: 56px; }
+.scan-strip { padding: 16px 22px; margin-bottom: 26px; }
+.app-shell .dashboard-header { min-height: 56px; padding: 7px 10px 7px 20px; }
+.step-rail button { min-height: 36px; padding: 0 14px 0 5px; }
+.step-num { width: 26px; height: 26px; }
+.finding-row summary { padding: 12px 14px; }
+.india-lens { padding: 18px 20px; }
+.il-big { font-size: 28px; }
+.verify-scores .is-main strong { font-size: 52px; }
+.verify-scores strong { font-size: 40px; }
+.connect-grid { gap: 40px; padding-top: clamp(16px, 5vh, 64px); }
+.lang-pick { display: grid; gap: 6px; justify-items: end; color: var(--muted); font-size: 13px; }
+.lang-pick select { min-width: 220px; height: 42px; padding: 0 14px; border-radius: 999px; font-size: 15px; }
